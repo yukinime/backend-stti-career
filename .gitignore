@@ -1,0 +1,19 @@
+# Logs
+logs
+*.log
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Dist/build output
+dist/
+build/
