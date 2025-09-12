@@ -1,79 +1,95 @@
 // middleware/auth.js
 const jwt = require('jsonwebtoken');
-const { pool } = require('../config/database');
+const db = require('../config/database');
 
-// Verify JWT Token
 const authenticateToken = async (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
-        return res.status(401).json({
-            success: false,
-            message: 'Access token required'
-        });
-    }
-
     try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+        console.log('Auth header:', authHeader); // Debug log
+        console.log('Extracted token:', token ? 'Token present' : 'No token'); // Debug log
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'Token akses diperlukan'
+            });
+        }
+
+        // Verify JWT token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // Check if user still exists and is active
-        const [users] = await pool.execute(
-            'SELECT id, full_name, email, role, is_active FROM users WHERE id = ? AND is_active = true',
+        console.log('Decoded token:', decoded); // Debug log
+
+        // Optional: Verify user still exists and is active
+        const [users] = await db.execute(
+            'SELECT id, email, role, is_active FROM users WHERE id = ? AND is_active = 1',
             [decoded.id]
         );
 
         if (users.length === 0) {
-            return res.status(401).json({
+            return res.status(403).json({
                 success: false,
-                message: 'Invalid token or user not found'
+                message: 'User tidak ditemukan atau tidak aktif'
             });
         }
 
-        req.user = users[0];
+        req.user = {
+            id: decoded.id,
+            email: decoded.email,
+            role: decoded.role
+        };
+
+        console.log('Authenticated user:', req.user); // Debug log
         next();
+
     } catch (error) {
-        return res.status(403).json({
+        console.error('JWT verification error:', error);
+        
+        if (error.name === 'TokenExpiredError') {
+            return res.status(403).json({
+                success: false,
+                message: 'Token sudah kadaluarsa'
+            });
+        }
+        
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(403).json({
+                success: false,
+                message: 'Token tidak valid'
+            });
+        }
+
+        return res.status(500).json({
             success: false,
-            message: 'Invalid or expired token'
+            message: 'Gagal memverifikasi token'
         });
     }
 };
 
-// Role-based authorization
-const authorizeRole = (...roles) => {
+const requireRole = (requiredRole) => {
     return (req, res, next) => {
+        console.log('Required role:', requiredRole, 'User role:', req.user?.role); // Debug log
+        
         if (!req.user) {
             return res.status(401).json({
                 success: false,
-                message: 'Authentication required'
+                message: 'User tidak terautentikasi'
             });
         }
 
-        if (!roles.includes(req.user.role)) {
+        if (req.user.role !== requiredRole) {
             return res.status(403).json({
                 success: false,
-                message: 'Access denied. Insufficient permissions'
+                message: `Akses ditolak. Diperlukan role: ${requiredRole}`
             });
         }
-
+        
         next();
     };
 };
 
-// Check if user is admin
-const isAdmin = authorizeRole('admin');
-
-// Check if user is HR
-const isHR = authorizeRole('hr', 'admin');
-
-// Check if user is Pelamar
-const isPelamar = authorizeRole('pelamar', 'admin');
-
 module.exports = {
     authenticateToken,
-    authorizeRole,
-    isAdmin,
-    isHR,
-    isPelamar
+    requireRole
 };

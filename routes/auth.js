@@ -1,42 +1,36 @@
 // routes/auth.js
 const express = require('express');
-const rateLimit = require('express-rate-limit');
-const { 
-    registerPelamar, 
-    registerHR, 
-    login, 
-    getProfile 
-} = require('../controllers/authController');
-const { 
-    validate, 
-    registerPelamarSchema, 
-    registerHRSchema, 
-    loginSchema 
-} = require('../middleware/validation');
-const { authenticateToken } = require('../middleware/auth');
-
 const router = express.Router();
+const { authenticateToken } = require('../middleware/auth');
+const {
+    registerPelamar,
+    registerHR,
+    login,
+    refreshToken,
+    logout,
+    getProfile,
+    changePassword
+} = require('../controllers/authController');
 
-// Rate limiting for auth endpoints
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // limit each IP to 10 requests per windowMs
-    message: {
-        success: false,
-        message: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.'
-    }
-});
+// POST /api/auth/register/pelamar - Register new job seeker
+router.post('/register/pelamar', registerPelamar);
 
-// Apply rate limiting to sensitive endpoints
-router.use('/login', authLimiter);
-router.use('/register', authLimiter);
+// POST /api/auth/register/hr - Register new HR
+router.post('/register/hr', registerHR);
 
-// Public routes
-router.post('/register/pelamar', validate(registerPelamarSchema), registerPelamar);
-router.post('/register/hr', validate(registerHRSchema), registerHR);
-router.post('/login', validate(loginSchema), login);
+// POST /api/auth/login - Login user
+router.post('/login', login);
 
-// Protected routes
+// POST /api/auth/refresh - Refresh access token
+router.post('/refresh', refreshToken);
+
+// POST /api/auth/logout - Logout user
+router.post('/logout', logout);
+
+// GET /api/auth/profile - Get current user profile
 router.get('/profile', authenticateToken, getProfile);
+
+// POST /api/auth/change-password - Change user password
+router.post('/change-password', authenticateToken, changePassword);
 
 module.exports = router;
