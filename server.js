@@ -10,6 +10,7 @@ const { testConnection, initializeDatabase } = require('./config/database');
 // Import routes
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
+const bookmarkRoutes = require('./routes/bookmarks'); // Updated route name
 // Uncomment when ready to use
 // const adminRoutes = require('./routes/admin');
 // const hrRoutes = require('./routes/hr');
@@ -52,6 +53,7 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/bookmarks', bookmarkRoutes); // Updated route path
 
 // Uncomment when other routes are ready
 // app.use('/api/admin', adminRoutes);
@@ -67,6 +69,7 @@ app.get('/', (req, res) => {
         endpoints: {
             auth: '/api/auth',
             profile: '/api/profile',
+            bookmarks: '/api/bookmarks', // Updated endpoint
             // admin: '/api/admin',
             // hr: '/api/hr',
             // pelamar: '/api/pelamar'
@@ -188,6 +191,7 @@ app.use('*', (req, res) => {
         available_endpoints: [
             '/api/auth/*',
             '/api/profile/*',
+            '/api/bookmarks/*', // Updated endpoint
             // '/api/admin/*',
             // '/api/hr/*',
             // '/api/pelamar/*'
@@ -274,6 +278,15 @@ Available Endpoints:
 │ DEL  /api/profile/skill/:id             │
 │ POST /api/profile/upload-files          │
 │ POST /api/profile/upload-photo          │
+├─────────────────────────────────────────┤
+│ 🔖 Bookmark Management (Pelamar):       │
+│ GET  /api/bookmarks                     │
+│ POST /api/bookmarks                     │
+│ DEL  /api/bookmarks/:id                 │
+│ DEL  /api/bookmarks/job/:job_id         │
+│ GET  /api/bookmarks/check/:job_id       │
+│ GET  /api/bookmarks/stats               │
+│ GET  /api/bookmarks/search              │
 └─────────────────────────────────────────┘
 
 📂 Upload Directories:
@@ -299,13 +312,34 @@ Environment Variables Loaded:
    PORT: ${PORT}
 
 💡 Quick Test Commands:
+
+📝 Register new pelamar:
    curl -X POST http://localhost:${PORT}/api/auth/register/pelamar \\
      -H "Content-Type: application/json" \\
      -d '{"full_name":"Test User","email":"test@example.com","password":"password123"}'
-   
+
+🔐 Login:
    curl -X POST http://localhost:${PORT}/api/auth/login \\
      -H "Content-Type: application/json" \\
      -d '{"email":"test@example.com","password":"password123"}'
+
+🔖 Add bookmark (need JWT token from login):
+   curl -X POST http://localhost:${PORT}/api/bookmarks \\
+     -H "Content-Type: application/json" \\
+     -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
+     -d '{"job_id": 1}'
+
+📋 Get bookmarks:
+   curl -X GET http://localhost:${PORT}/api/bookmarks \\
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+🔍 Check bookmark status:
+   curl -X GET http://localhost:${PORT}/api/bookmarks/check/1 \\
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+📊 Get bookmark stats:
+   curl -X GET http://localhost:${PORT}/api/bookmarks/stats \\
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
             `);
         });
 
