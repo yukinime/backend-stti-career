@@ -10,7 +10,10 @@ const { testConnection, initializeDatabase } = require('./config/database');
 // Import routes
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
-const bookmarkRoutes = require('./routes/bookmarks'); // Updated route name
+const bookmarkRoutes = require('./routes/bookmarks');
+const jobRoutes = require('./routes/jobs');
+const applicantRoutes = require('./routes/applicant');
+const companyRoutes = require('./routes/company'); // Updated route name
 // Uncomment when ready to use
 // const adminRoutes = require('./routes/admin');
 // const hrRoutes = require('./routes/hr');
@@ -53,8 +56,10 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/bookmarks', bookmarkRoutes); // Updated route path
-
+app.use('/api/bookmarks', bookmarkRoutes);
+app.use('/api/jobs', jobRoutes);
+app.use('/api/applicant', applicantRoutes);
+app.use('/api/company', companyRoutes); // Updated route path
 // Uncomment when other routes are ready
 // app.use('/api/admin', adminRoutes);
 // app.use('/api/hr', hrRoutes);
@@ -69,7 +74,10 @@ app.get('/', (req, res) => {
         endpoints: {
             auth: '/api/auth',
             profile: '/api/profile',
-            bookmarks: '/api/bookmarks', // Updated endpoint
+            bookmarks: '/api/bookmarks', 
+            job: 'api/jobs',
+            company: 'api/company',
+            applicant: 'api/applicant', // Updated endpoint
             // admin: '/api/admin',
             // hr: '/api/hr',
             // pelamar: '/api/pelamar'
@@ -191,9 +199,13 @@ app.use('*', (req, res) => {
         available_endpoints: [
             '/api/auth/*',
             '/api/profile/*',
-            '/api/bookmarks/*', // Updated endpoint
+            '/api/bookmarks/*',
+            '/api/dashboard/*',
+            '/api/company/*',
+            '/api/applicant/*',
+            '/api/jobs/*',
             // '/api/admin/*',
-            // '/api/hr/*',
+            //'/api/hr/*',
             // '/api/pelamar/*'
         ]
     });
@@ -241,8 +253,8 @@ const startServer = async () => {
 ╔════════════════════════════════════════╗
 ║           STTI Career API              ║
 ╠════════════════════════════════════════╣
-║ Server running on port: ${PORT.toString().padEnd(15)} ║
-║ Environment: ${(process.env.NODE_ENV || 'development').padEnd(19)} ║
+║ Server running on port: ${PORT.toString().padEnd(15)}║
+║ Environment: ${(process.env.NODE_ENV || 'development').padEnd(19)}       ║
 ║ Database: Connected ✅                 ║
 ║ Tables: Initialized ✅                 ║
 ║ File Upload: Enabled ✅                ║
@@ -287,8 +299,31 @@ Available Endpoints:
 │ GET  /api/bookmarks/check/:job_id       │
 │ GET  /api/bookmarks/stats               │
 │ GET  /api/bookmarks/search              │
+├─────────────────────────────────────────┤
+│ 🔖 Jobs (Hr):                           │
+│ GET  /api/jobs                          │
+│ GET  /api/jobs/:id                      │
+│ GET  /api/jobs/loker/summary            │
+│ GET  /api/jobs/details/:id/             │
+│ POST /api/jobs                          │
+│ PUT  /api/jobs/:id                      │
+│ DEL  /api/jobs/:id                      │
+│ PUT  /api/jobs/:id/verify               │
+├─────────────────────────────────────────┤
+│ 🔖 apllicant (Hr):                      │
+│ GET  /api/applicant                     │
+│ GET  /api/applicant/:id                 │
+│ POST /api/applicant                     │
+│ PUT  /api/applicant/:id/status          │
+│ DEL  /api/applicant/:id                 │
+├─────────────────────────────────────────┤
+│ 🔖 company (Hr):                        │
+│ GET  /api/company                       │
+│ GET  /api/company/:id                   │
+│ POST /api/company                       │
+│ PUT  /api/company/:id                   │
+│ DEL  /api/company/:id                   │
 └─────────────────────────────────────────┘
-
 📂 Upload Directories:
    📄 ./uploads/files/ - Documents (PDF, DOC, DOCX)
    🖼️  ./uploads/images/ - Images (JPG, PNG, GIF)
