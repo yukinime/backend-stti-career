@@ -1,0 +1,19 @@
+{
+  "info": {
+    "name": "STTI Career API (Scanned)",
+    "_postman_id": "stti-career-scanned-collection",
+    "description": "Auto-generated from source scan",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": []
+}

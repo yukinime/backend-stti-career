@@ -5,7 +5,8 @@ const {
     getUserById,
     updateUserStatus,
     deleteUser,
-    getDashboardStats
+    getDashboardStats,
+    getActivityLogs
 } = require('../controllers/adminController');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const Joi = require('joi');
@@ -35,10 +36,11 @@ const validateUpdateUserStatus = (req, res, next) => {
 };
 
 // Admin routes
-router.get('/dashboard', getDashboardStats);
-router.get('/users', getAllUsers);
-router.get('/users/:id', getUserById);
-router.patch('/users/:id/status', validateUpdateUserStatus, updateUserStatus);
-router.delete('/users/:id', deleteUser);
+router.get('/dashboard', getDashboardStats);     // Dashboard summary (users, companies, jobs, apps)
+router.get('/logs', getActivityLogs);            // Admin activity logs
+router.get('/users', getAllUsers);               // List all users
+router.get('/users/:id', getUserById);           // Detail user
+router.patch('/users/:id/status', validateUpdateUserStatus, updateUserStatus); // Update user active/inactive
+router.delete('/users/:id', deleteUser);         // Delete user
 
 module.exports = router;

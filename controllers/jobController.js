@@ -1,143 +1,172 @@
 // controllers/jobController.js
 const db = require('../config/database');
 
-// GET all jobs
+/**
+ * GET all jobs
+ */
 exports.getAllJobs = async (req, res) => {
   try {
-    const [results] = await db.query('SELECT * FROM job_post');
-    res.json(results);
+    const [results] = await db.query('SELECT * FROM job_posts ORDER BY created_at DESC');
+    res.json({ success: true, data: results });
   } catch (err) {
     console.error('Database query error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// GET job summary (job_title, status, created_at)
+/**
+ * GET job summary (title, status, created_at, verification_status)
+ */
 exports.getJobSummary = async (req, res) => {
   try {
-    // Query untuk mengambil job_title, status, created_at
-    const [results] = await db.query('SELECT job_title, status, created_at FROM job_post');
-
-    // Debugging: Periksa hasil query
-    console.log('Results:', results); // Ini akan membantu kita melihat apa yang diterima dari query
+    const [results] = await db.query(
+      'SELECT id, job_title, is_active, verification_status, created_at FROM job_posts ORDER BY created_at DESC'
+    );
 
     if (results.length === 0) {
-      console.log('No jobs found in the database');
-      return res.status(404).json({ message: 'No jobs found' });
+      return res.status(404).json({ success: false, message: 'No jobs found' });
     }
 
-    // Mengirimkan hasil query sebagai respons
-    res.json(results);
+    res.json({ success: true, data: results });
   } catch (err) {
-    console.error('Database query error:', err);  // Menampilkan error jika ada
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Database query error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// GET job by ID
+/**
+ * GET job by ID
+ */
 exports.getJobById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [results] = await db.query('SELECT * FROM job_post WHERE id = ?', [id]);
+    const [results] = await db.query('SELECT * FROM job_posts WHERE id = ?', [id]);
+
     if (results.length === 0) {
-      return res.status(404).json({ message: 'Job not found' });
+      return res.status(404).json({ success: false, message: 'Job not found' });
     }
-    res.json(results[0]);
+    res.json({ success: true, data: results[0] });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// POST job
+/**
+ * CREATE job
+ */
 exports.createJob = async (req, res) => {
   try {
     const jobData = req.body;
-    const [result] = await db.query('INSERT INTO job_post SET ?', [jobData]);
-    res.status(201).json({ id: result.insertId, ...jobData });
+    const [result] = await db.query('INSERT INTO job_posts SET ?', [jobData]);
+    res.status(201).json({ success: true, data: { id: result.insertId, ...jobData } });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Create job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// UPDATE job
+/**
+ * UPDATE job
+ */
 exports.updateJob = async (req, res) => {
   try {
     const { id } = req.params;
     const updatedData = req.body;
-    await db.query('UPDATE job_post SET ? WHERE id = ?', [updatedData, id]);
-    res.json({ message: 'Job updated', id });
+    await db.query('UPDATE job_posts SET ? WHERE id = ?', [updatedData, id]);
+    res.json({ success: true, message: 'Job updated', id });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Update job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// DELETE job
+/**
+ * DELETE job
+ */
 exports.deleteJob = async (req, res) => {
   try {
     const { id } = req.params;
-    await db.query('DELETE FROM job_post WHERE id = ?', [id]);
-    res.json({ message: 'Job deleted' });
+    await db.query('DELETE FROM job_posts WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Job deleted' });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Delete job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-// VERIFY job
+/**
+ * VERIFY job (approve / reject)
+ */
 exports.verifyJob = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body;
+    const adminId = req.user?.id || null; // asumsi middleware auth inject req.user
 
-    if (!['approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+    if (!['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 
-    await db.query('UPDATE job_post SET status = ? WHERE id = ?', [status, id]);
-    res.json({ message: `Job ${status}`, id });
+    await db.query(
+      `UPDATE job_posts 
+       SET verification_status=?, verification_by=?, verification_at=NOW(), rejection_reason=? 
+       WHERE id=?`,
+      [status, adminId, status === 'rejected' ? reason : null, id]
+    );
+
+    // log ke admin_activity_logs
+    await db.query(
+      `INSERT INTO admin_activity_logs (admin_id, action, target_type, target_id, note) 
+       VALUES (?, ?, 'job_post', ?, ?)`,
+      [adminId, status === 'verified' ? 'verify_job' : 'reject_job', id, reason || null]
+    );
+
+    res.json({ success: true, message: `Job ${status} successfully`, id });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Verify job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-// GET job details (including total applicants, selection stages, etc.)
+
+/**
+ * GET job details (with total applications & selection phases)
+ */
 exports.getJobDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Query untuk mendapatkan data lowongan kerja dan total pelamar
-    const [jobResults] = await db.query(`
-      SELECT jp.id, jp.job_title, jp.status, COUNT(a.id) AS total_applications
-      FROM job_post jp
-      LEFT JOIN applications a ON a.job_id = jp.id
-      WHERE jp.id = ?
-      GROUP BY jp.id
-    `, [id]);
+    const [jobResults] = await db.query(
+      `SELECT jp.id, jp.job_title, jp.verification_status, jp.is_active, 
+              COUNT(a.id) AS total_applications
+       FROM job_posts jp
+       LEFT JOIN applications a ON a.job_id = jp.id
+       WHERE jp.id = ?
+       GROUP BY jp.id`,
+      [id]
+    );
 
     if (jobResults.length === 0) {
-      return res.status(404).json({ message: 'Job not found' });
+      return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
     const job = jobResults[0];
 
-    // Jika ada tahapan seleksi, ambil data tahapan seleksi dari tabel lainnya
-    // Misalnya jika ada tabel `selection_phases` (belum ada di deskripsi, jadi anggap jika perlu ditambahkan)
-    const [selectionStages] = await db.query(`
-      SELECT sp.phase_name, sp.status
-      FROM selection_phases sp
-      WHERE sp.job_id = ?
-    `, [id]);
+    const [selectionStages] = await db.query(
+      `SELECT sp.phase_name, sp.status 
+       FROM selection_phases sp 
+       WHERE sp.job_id = ?`,
+      [id]
+    );
 
-    // Data lengkap untuk job termasuk total pelamar dan tahapan seleksi
-    const jobDetails = {
-      id: job.id,
-      job_title: job.job_title,
-      status: job.status,
-      total_applicants: job.total_applicants,
-      selection_stages: selectionStages // jika ada tahapan seleksi
-    };
-
-    res.json(jobDetails);
+    res.json({
+      success: true,
+      data: {
+        ...job,
+        selection_stages: selectionStages
+      }
+    });
   } catch (err) {
-    console.error('Database query error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Get job details error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
