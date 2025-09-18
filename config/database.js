@@ -152,7 +152,7 @@ module.exports = {
   pool,
   db,
   testConnection,
-  initializeDatabase: require('./database').initializeDatabase, // kalau kamu pisah; kalau tidak, ekspor yang ada
+  initializeDatabase,   
   execute: db.execute,
   query: db.query
 };
