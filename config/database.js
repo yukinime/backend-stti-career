@@ -1,64 +1,61 @@
 // config/database.js
 const mysql = require('mysql2/promise');
+const dns = require('dns');
 require('dotenv').config();
 
-// Create connection pool for better performance
+try { dns.setDefaultResultOrder('ipv4first'); } catch {}
+
+const host = process.env.DB_HOST || process.env.MYSQLHOST || process.env.MYSQL_HOST || 'localhost';
+const port = Number(process.env.DB_PORT || process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306);
+const user = process.env.DB_USER || process.env.MYSQLUSER || process.env.MYSQL_USER || 'root';
+const password = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || '';
+const database = process.env.DB_NAME || process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || 'stti_career';
+
+// Set true kalau provider kamu mewajibkan SSL (default false untuk Railway)
+const useSSL = (process.env.DB_SSL === 'true' || process.env.MYSQL_SSL === 'true');
+const ssl = useSSL ? { rejectUnauthorized: false } : undefined;
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'stti_career',
+  host,
+  port,
+  user,
+  password,
+  database,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  connectTimeout: 10000, // ms, valid option
-  timezone: '+07:00' // WIB timezone
+  connectTimeout: 15000,
+  timezone: '+07:00',
+  ...(ssl ? { ssl } : {})
 });
 
-// Test database connection
-const testConnection = async () => {
-  try {
-    const connection = await pool.getConnection();
-    console.log('✅ Database connected successfully');
-
-    const [result] = await connection.execute('SELECT 1 as test');
-    console.log('✅ Database query test passed', result);
-
-    connection.release();
-    return true;
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    if (error.code === 'ECONNREFUSED') {
-      console.error('   Pastikan MySQL server berjalan');
-    } else if (error.code === 'ER_ACCESS_DENIED_ERROR') {
-      console.error('   Username atau password database salah');
-    } else if (error.code === 'ER_BAD_DB_ERROR') {
-      console.error('   Database tidak ditemukan');
+// Retryable test
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const testConnection = async (retries = 8, delayMs = 1500) => {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      const conn = await pool.getConnection();
+      await conn.ping();
+      conn.release();
+      console.log('✅ Database connected successfully');
+      return true;
+    } catch (error) {
+      console.error(`❌ Database connection failed (attempt ${i}/${retries}):`, error.message);
+      if (i === retries) return false;
+      await sleep(delayMs);
     }
-    return false;
   }
+  return false;
 };
 
-// Wrapper untuk query (agar seragam di project)
 const db = {
-  execute: async (query, params = []) => {
-    try {
-      const [result] = await pool.execute(query, params);
-      return [result];
-    } catch (error) {
-      console.error('Database execute error:', error);
-      throw error;
-    }
+  execute: async (q, p = []) => {
+    const [result] = await pool.execute(q, p);
+    return [result];
   },
-  query: async (query, params = []) => {
-    try {
-      const [result] = await pool.query(query, params);
-      return [result];
-    } catch (error) {
-      console.error('Database query error:', error);
-      throw error;
-    }
+  query: async (q, p = []) => {
+    const [result] = await pool.query(q, p);
+    return [result];
   }
 };
 
@@ -155,7 +152,7 @@ module.exports = {
   pool,
   db,
   testConnection,
-  initializeDatabase,
+  initializeDatabase: require('./database').initializeDatabase, // kalau kamu pisah; kalau tidak, ekspor yang ada
   execute: db.execute,
   query: db.query
 };
