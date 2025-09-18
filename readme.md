@@ -177,13 +177,3 @@ Beberapa hal yang dibahas:
 Private / internal use.
 
 ---
-
-> Setelah menempel README ini:
->
-> ```bash
-> git add README.md
-> git commit -m "docs: add professional README with API docs & Postman links"
-> git push
-> ```
-
-Kalau kamu mau, aku bisa buat **versi bilingual (ID/EN)** atau tambahkan **badge** (Node version, Railway deploy) juga.
