@@ -1,5 +1,5 @@
 // controllers/adminController.js
-const { pool } = require('../config/database');
+const { db } = require('../config/database');
 
 /**
  * Get all users (with pagination, role filter, search)
@@ -8,39 +8,33 @@ const getAllUsers = async (req, res) => {
   try {
     let { page = 1, limit = 10, role, search, email, format, single } = req.query;
 
-    // Normalisasi & validasi angka
     page = parseInt(page, 10);
     limit = parseInt(limit, 10);
     if (!Number.isFinite(page) || page < 1) page = 1;
     if (!Number.isFinite(limit) || limit < 1) limit = 10;
-    if (limit > 100) limit = 100; // batasi biar aman
+    if (limit > 100) limit = 100;
     const offset = (page - 1) * limit;
 
-    // Build WHERE + params
     let where = 'WHERE 1=1';
     const params = [];
     const countParams = [];
 
     if (role && ['admin', 'hr', 'pelamar'].includes(role)) {
       where += ' AND role = ?';
-      params.push(role);
-      countParams.push(role);
+      params.push(role); countParams.push(role);
     }
 
     if (email) {
       where += ' AND LOWER(email) = LOWER(?)';
-      params.push(email);
-      countParams.push(email);
+      params.push(email); countParams.push(email);
     }
 
     if (search) {
       where += ' AND (full_name LIKE ? OR email LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s);
-      countParams.push(s, s);
+      params.push(s, s); countParams.push(s, s);
     }
 
-    // Query utama: sisipkan LIMIT/OFFSET sebagai angka (bukan placeholder)
     const listSql = `
       SELECT id, full_name, email, role, company_name, company_address, position,
              address, date_of_birth, phone, is_active, created_at, updated_at
@@ -50,19 +44,16 @@ const getAllUsers = async (req, res) => {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    // Query count (tanpa LIMIT/OFFSET)
     const countSql = `
       SELECT COUNT(*) AS total
       FROM users
       ${where}
     `;
 
-    // Pakai db.query (text protocol) agar aman untuk LIMIT angka yang disisipkan
-    const [users] = await db.query(listSql, params);
+    const [users] = await db.query(listSql, params);        // ← db.query (text protocol)
     const [totalRows] = await db.query(countSql, countParams);
     const total = totalRows[0]?.total ?? 0;
 
-    // format=single atau single=1 → balikin object tunggal
     if (format === 'single' || single === '1' || limit === 1) {
       if (!users.length) {
         return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
@@ -70,7 +61,6 @@ const getAllUsers = async (req, res) => {
       return res.json({ success: true, data: users[0] });
     }
 
-    // default: list + pagination
     return res.json({
       success: true,
       data: {
