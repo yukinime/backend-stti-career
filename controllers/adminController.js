@@ -6,73 +6,86 @@ const { pool } = require('../config/database');
  */
 const getAllUsers = async (req, res) => {
   try {
-    const { page = 1, limit = 10, role, search, email, format, single } = req.query;
+    let { page = 1, limit = 10, role, search, email, format, single } = req.query;
+
+    // Normalisasi & validasi angka
+    page = parseInt(page, 10);
+    limit = parseInt(limit, 10);
+    if (!Number.isFinite(page) || page < 1) page = 1;
+    if (!Number.isFinite(limit) || limit < 1) limit = 10;
+    if (limit > 100) limit = 100; // batasi biar aman
     const offset = (page - 1) * limit;
 
-    let query = `
-      SELECT id, full_name, email, role, company_name, company_address, position, 
-             address, date_of_birth, phone, is_active, created_at, updated_at
-      FROM users WHERE 1=1
-    `;
-    let countQuery = 'SELECT COUNT(*) as total FROM users WHERE 1=1';
+    // Build WHERE + params
+    let where = 'WHERE 1=1';
     const params = [];
     const countParams = [];
 
     if (role && ['admin', 'hr', 'pelamar'].includes(role)) {
-      query += ' AND role = ?';
-      countQuery += ' AND role = ?';
+      where += ' AND role = ?';
       params.push(role);
       countParams.push(role);
     }
 
-    // exact email (case-insensitive) kalau dikirim
     if (email) {
-      query += ' AND LOWER(email) = LOWER(?)';
-      countQuery += ' AND LOWER(email) = LOWER(?)';
+      where += ' AND LOWER(email) = LOWER(?)';
       params.push(email);
       countParams.push(email);
     }
 
-    // search bebas (nama / email)
     if (search) {
-      query += ' AND (full_name LIKE ? OR email LIKE ?)';
-      countQuery += ' AND (full_name LIKE ? OR email LIKE ?)';
+      where += ' AND (full_name LIKE ? OR email LIKE ?)';
       const s = `%${search}%`;
       params.push(s, s);
       countParams.push(s, s);
     }
 
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    // Query utama: sisipkan LIMIT/OFFSET sebagai angka (bukan placeholder)
+    const listSql = `
+      SELECT id, full_name, email, role, company_name, company_address, position,
+             address, date_of_birth, phone, is_active, created_at, updated_at
+      FROM users
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
 
-    const [users] = await pool.execute(query, params);
-    const [totalResult] = await pool.execute(countQuery, countParams);
-    const total = totalResult[0].total;
+    // Query count (tanpa LIMIT/OFFSET)
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM users
+      ${where}
+    `;
 
-    // kalau minta format single atau limit=1, kembalikan object tunggal
-    if (format === 'single' || single === '1' || parseInt(limit) === 1) {
-      if (users.length === 0) {
+    // Pakai db.query (text protocol) agar aman untuk LIMIT angka yang disisipkan
+    const [users] = await db.query(listSql, params);
+    const [totalRows] = await db.query(countSql, countParams);
+    const total = totalRows[0]?.total ?? 0;
+
+    // format=single atau single=1 → balikin object tunggal
+    if (format === 'single' || single === '1' || limit === 1) {
+      if (!users.length) {
         return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
       }
       return res.json({ success: true, data: users[0] });
     }
 
     // default: list + pagination
-    res.json({
+    return res.json({
       success: true,
       data: {
         users,
         pagination: {
-          current_page: parseInt(page),
+          current_page: page,
           total_pages: Math.ceil(total / limit),
           total_items: total,
-          items_per_page: parseInt(limit)
+          items_per_page: limit
         }
       }
     });
   } catch (error) {
     console.error('Get all users error:', error);
-    res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
 
