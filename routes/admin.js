@@ -35,7 +35,7 @@ const validateUpdateUserStatus = (req, res, next) => {
     next();
 };
 
-const { getActivityLogs } = require('../controllers/adminController');
+
 
 // Admin routes
 router.get('/dashboard', getDashboardStats);     // Dashboard summary (users, companies, jobs, apps)
@@ -44,6 +44,6 @@ router.get('/users', getAllUsers);               // List all users
 router.get('/users/:id', getUserById);           // Detail user
 router.patch('/users/:id/status', validateUpdateUserStatus, updateUserStatus); // Update user active/inactive
 router.delete('/users/:id', deleteUser);         // Delete user
-router.get('/logs', getActivityLogs);
+
 
 module.exports = router;
