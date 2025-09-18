@@ -6,19 +6,18 @@ const { pool } = require('../config/database');
  */
 const getAllUsers = async (req, res) => {
   try {
-    const { page = 1, limit = 10, role, search } = req.query;
+    const { page = 1, limit = 10, role, search, email, format, single } = req.query;
     const offset = (page - 1) * limit;
 
     let query = `
-      SELECT id, full_name, email, role, company_name, position, 
-             address, phone, is_active, created_at 
+      SELECT id, full_name, email, role, company_name, company_address, position, 
+             address, date_of_birth, phone, is_active, created_at, updated_at
       FROM users WHERE 1=1
     `;
     let countQuery = 'SELECT COUNT(*) as total FROM users WHERE 1=1';
-    let params = [];
-    let countParams = [];
+    const params = [];
+    const countParams = [];
 
-    // Filter by role
     if (role && ['admin', 'hr', 'pelamar'].includes(role)) {
       query += ' AND role = ?';
       countQuery += ' AND role = ?';
@@ -26,13 +25,21 @@ const getAllUsers = async (req, res) => {
       countParams.push(role);
     }
 
-    // Search by name or email
+    // exact email (case-insensitive) kalau dikirim
+    if (email) {
+      query += ' AND LOWER(email) = LOWER(?)';
+      countQuery += ' AND LOWER(email) = LOWER(?)';
+      params.push(email);
+      countParams.push(email);
+    }
+
+    // search bebas (nama / email)
     if (search) {
       query += ' AND (full_name LIKE ? OR email LIKE ?)';
       countQuery += ' AND (full_name LIKE ? OR email LIKE ?)';
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm);
-      countParams.push(searchTerm, searchTerm);
+      const s = `%${search}%`;
+      params.push(s, s);
+      countParams.push(s, s);
     }
 
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -42,6 +49,15 @@ const getAllUsers = async (req, res) => {
     const [totalResult] = await pool.execute(countQuery, countParams);
     const total = totalResult[0].total;
 
+    // kalau minta format single atau limit=1, kembalikan object tunggal
+    if (format === 'single' || single === '1' || parseInt(limit) === 1) {
+      if (users.length === 0) {
+        return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+      }
+      return res.json({ success: true, data: users[0] });
+    }
+
+    // default: list + pagination
     res.json({
       success: true,
       data: {
@@ -56,10 +72,7 @@ const getAllUsers = async (req, res) => {
     });
   } catch (error) {
     console.error('Get all users error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
 
@@ -292,6 +305,8 @@ const getActivityLogs = async (req, res) => {
     });
   }
 };
+
+
 
 module.exports = {
   getAllUsers,
