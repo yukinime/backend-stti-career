@@ -1,585 +1,496 @@
 // controllers/authController.js
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { pool } = require('../config/database');
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { pool } = require("../config/database");
 
-// Generate JWT Token
+// ===== Helpers =====
 const generateToken = (user) => {
-    const accessToken = jwt.sign(
-        { 
-            id: user.id, 
-            email: user.email, 
-            role: user.role 
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
+  const accessToken = jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "24h" }
+  );
 
-    const refreshToken = jwt.sign(
-        { 
-            id: user.id 
-        },
-        process.env.JWT_SECRET + '_refresh',
-        { expiresIn: '7d' }
-    );
+  const refreshToken = jwt.sign(
+    { id: user.id },
+    (process.env.JWT_SECRET || "") + "_refresh",
+    { expiresIn: "7d" }
+  );
 
-    return { accessToken, refreshToken };
+  return { accessToken, refreshToken };
 };
 
-// Store refresh tokens (in production, use Redis or database)
+// Sementara: simpan refresh token di memori (production -> simpan di DB/Redis)
 let refreshTokens = [];
 
-// Register Pelamar
+// ===== Register Pelamar =====
 const registerPelamar = async (req, res) => {
-    const connection = await pool.getConnection();
-    
-    try {
-        await connection.beginTransaction();
+  const {
+    full_name,
+    email,
+    password,
+    address = null,
+    date_of_birth = null,
+    phone = null,
+  } = req.body;
 
-        const { full_name, email, password, address, date_of_birth, phone } = req.body;
+  // Validasi lebih dulu (sebelum transaksi & koneksi)
+  if (!full_name || !email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: "Nama lengkap, email, dan password wajib diisi",
+    });
+  }
+  if (String(password).length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Password minimal 6 karakter",
+    });
+  }
 
-        console.log('👤 Registering new pelamar:', email);
+  const cleanEmail = String(email).trim().toLowerCase();
+  const conn = await pool.getConnection();
 
-        // Validasi input
-        if (!full_name || !email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: 'Nama lengkap, email, dan password wajib diisi'
-            });
-        }
-
-        if (password.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password minimal 6 karakter'
-            });
-        }
-
-        // Check if user already exists
-        const [existingUsers] = await connection.execute(
-            'SELECT id FROM users WHERE email = ?',
-            [email]
-        );
-
-        if (existingUsers.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Email sudah terdaftar'
-            });
-        }
-
-        // Hash password
-        const saltRounds = 12;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-        // Insert new pelamar
-        const [result] = await connection.execute(
-            `INSERT INTO users (full_name, email, password, role, address, date_of_birth, phone) 
-             VALUES (?, ?, ?, 'pelamar', ?, ?, ?)`,
-            [full_name, email, hashedPassword, address, date_of_birth, phone]
-        );
-
-        // Juga buat record di pelamar_profiles
-        await connection.execute(
-            `INSERT INTO pelamar_profiles (user_id, full_name, email, phone, address, date_of_birth) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [result.insertId, full_name, email, phone, address, date_of_birth]
-        );
-
-        // Get created user
-        const [users] = await connection.execute(
-            'SELECT id, full_name, email, role, created_at FROM users WHERE id = ?',
-            [result.insertId]
-        );
-
-        const user = users[0];
-        const tokens = generateToken(user);
-
-        // Simpan refresh token (dalam production, simpan di database)
-        refreshTokens.push(tokens.refreshToken);
-
-        await connection.commit();
-
-        console.log(`✅ Pelamar registered successfully with ID: ${user.id}`);
-
-        res.status(201).json({
-            success: true,
-            message: 'Registrasi pelamar berhasil',
-            data: {
-                user: {
-                    id: user.id,
-                    full_name: user.full_name,
-                    email: user.email,
-                    role: user.role,
-                    created_at: user.created_at
-                },
-                tokens
-            }
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('❌ Register pelamar error:', error);
-        
-        if (error.code === 'ER_DUP_ENTRY') {
-            return res.status(409).json({
-                success: false,
-                message: 'Email sudah terdaftar'
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    } finally {
-        connection.release();
+  try {
+    // Cek email dulu
+    const [exists] = await conn.execute(
+      "SELECT id FROM users WHERE LOWER(email) = LOWER(?)",
+      [cleanEmail]
+    );
+    if (exists.length) {
+      conn.release();
+      return res
+        .status(409)
+        .json({ success: false, message: "Email sudah terdaftar" });
     }
+
+    await conn.beginTransaction();
+
+    const hash = await bcrypt.hash(password, 12);
+
+    // Insert user (role pelamar)
+    const [ins] = await conn.execute(
+      `INSERT INTO users
+         (full_name, email, password, role, address, date_of_birth, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, 'pelamar', ?, ?, ?, 1, NOW(), NOW())`,
+      [full_name, cleanEmail, hash, address, date_of_birth, phone]
+    );
+
+    // JANGAN insert ke pelamar_profiles di sini jika kamu sudah pakai TRIGGER DB
+    // (TRIGGER akan otomatis membuat baris profil untuk role 'pelamar').
+
+    await conn.commit();
+    conn.release();
+
+    const user = {
+      id: ins.insertId,
+      email: cleanEmail,
+      role: "pelamar",
+      full_name,
+    };
+    const tokens = generateToken(user);
+    refreshTokens.push(tokens.refreshToken);
+
+    return res.status(201).json({
+      success: true,
+      message: "Registrasi pelamar berhasil",
+      data: { user, tokens },
+    });
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {}
+    conn.release();
+
+    if (
+      error.code === "ER_DUP_ENTRY" &&
+      /users/i.test(error.sqlMessage || "")
+    ) {
+      return res
+        .status(409)
+        .json({ success: false, message: "Email sudah terdaftar" });
+    }
+    if (
+      error.code === "ER_DUP_ENTRY" &&
+      /pelamar_profiles/i.test(error.sqlMessage || "")
+    ) {
+      // Jika trigger sempat membuat profil lalu app sempat mencoba juga (idempotent)
+      return res
+        .status(201)
+        .json({ success: true, message: "Registrasi pelamar berhasil" });
+    }
+
+    console.error("Register pelamar error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
-// Register HR
+// ===== Register HR =====
 const registerHR = async (req, res) => {
-    const connection = await pool.getConnection();
-    
-    try {
-        await connection.beginTransaction();
+  const {
+    full_name,
+    email,
+    password,
+    company_name,
+    company_address = null,
+    position = null,
+    phone = null,
+  } = req.body;
 
-        const { full_name, email, password, company_name, company_address, position, phone } = req.body;
+  if (!full_name || !email || !password || !company_name) {
+    return res.status(400).json({
+      success: false,
+      message: "Nama lengkap, email, password, dan nama perusahaan wajib diisi",
+    });
+  }
+  if (String(password).length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Password minimal 6 karakter",
+    });
+  }
 
-        console.log('🏢 Registering new HR:', email);
+  const cleanEmail = String(email).trim().toLowerCase();
+  const conn = await pool.getConnection();
 
-        // Validasi input
-        if (!full_name || !email || !password || !company_name) {
-            return res.status(400).json({
-                success: false,
-                message: 'Nama lengkap, email, password, dan nama perusahaan wajib diisi'
-            });
-        }
-
-        if (password.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password minimal 6 karakter'
-            });
-        }
-
-        // Check if user already exists
-        const [existingUsers] = await connection.execute(
-            'SELECT id FROM users WHERE email = ?',
-            [email]
-        );
-
-        if (existingUsers.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Email sudah terdaftar'
-            });
-        }
-
-        // Hash password
-        const saltRounds = 12;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-        // Insert new HR
-        const [result] = await connection.execute(
-            `INSERT INTO users (full_name, email, password, role, company_name, company_address, position, phone) 
-             VALUES (?, ?, ?, 'hr', ?, ?, ?, ?)`,
-            [full_name, email, hashedPassword, company_name, company_address, position, phone]
-        );
-
-        // Juga buat record di hr_profiles
-        await connection.execute(
-            `INSERT INTO hr_profiles (user_id, company_name, company_address, position) 
-             VALUES (?, ?, ?, ?)`,
-            [result.insertId, company_name, company_address, position]
-        );
-
-        // Get created user
-        const [users] = await connection.execute(
-            'SELECT id, full_name, email, role, company_name, position, created_at FROM users WHERE id = ?',
-            [result.insertId]
-        );
-
-        const user = users[0];
-        const tokens = generateToken(user);
-
-        // Simpan refresh token
-        refreshTokens.push(tokens.refreshToken);
-
-        await connection.commit();
-
-        console.log(`✅ HR registered successfully with ID: ${user.id}`);
-
-        res.status(201).json({
-            success: true,
-            message: 'Registrasi HR berhasil',
-            data: {
-                user: {
-                    id: user.id,
-                    full_name: user.full_name,
-                    email: user.email,
-                    role: user.role,
-                    company_name: user.company_name,
-                    position: user.position,
-                    created_at: user.created_at
-                },
-                tokens
-            }
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('❌ Register HR error:', error);
-        
-        if (error.code === 'ER_DUP_ENTRY') {
-            return res.status(409).json({
-                success: false,
-                message: 'Email sudah terdaftar'
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    } finally {
-        connection.release();
+  try {
+    // Cek email dulu
+    const [exists] = await conn.execute(
+      "SELECT id FROM users WHERE LOWER(email) = LOWER(?)",
+      [cleanEmail]
+    );
+    if (exists.length) {
+      conn.release();
+      return res
+        .status(409)
+        .json({ success: false, message: "Email sudah terdaftar" });
     }
+
+    await conn.beginTransaction();
+
+    const hash = await bcrypt.hash(password, 12);
+
+    // Insert user (role HR)
+    const [ins] = await conn.execute(
+      `INSERT INTO users
+         (full_name, email, password, role, company_name, company_address, position, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, 'hr', ?, ?, ?, ?, 1, NOW(), NOW())`,
+      [
+        full_name,
+        cleanEmail,
+        hash,
+        company_name,
+        company_address,
+        position,
+        phone,
+      ]
+    );
+
+    // === Jika TIDAK pakai trigger untuk hr_profiles, UNCOMMENT 4 baris di bawah: ===
+    // await conn.execute(
+    //   `INSERT INTO hr_profiles (user_id, company_name, company_address, position)
+    //    VALUES (?, ?, ?, ?)`,
+    //   [ins.insertId, company_name, company_address, position]
+    // );
+
+    await conn.commit();
+    conn.release();
+
+    const user = {
+      id: ins.insertId,
+      email: cleanEmail,
+      role: "hr",
+      full_name,
+      company_name,
+      position,
+    };
+    const tokens = generateToken(user);
+    refreshTokens.push(tokens.refreshToken);
+
+    return res.status(201).json({
+      success: true,
+      message: "Registrasi HR berhasil",
+      data: { user, tokens },
+    });
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {}
+    conn.release();
+
+    if (
+      error.code === "ER_DUP_ENTRY" &&
+      /users/i.test(error.sqlMessage || "")
+    ) {
+      return res
+        .status(409)
+        .json({ success: false, message: "Email sudah terdaftar" });
+    }
+    if (
+      error.code === "ER_DUP_ENTRY" &&
+      /hr_profiles/i.test(error.sqlMessage || "")
+    ) {
+      return res
+        .status(409)
+        .json({ success: false, message: "Profil HR sudah ada" });
+    }
+
+    console.error("Register HR error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
-// Login
+// ===== Login =====
 const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const cleanEmail = String(req.body.email || "")
+      .trim()
+      .toLowerCase();
+    const password = req.body.password;
 
-        console.log('🔐 Login attempt for:', email);
+    if (!cleanEmail || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email dan password wajib diisi" });
+    }
 
-        // Validasi input
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email dan password wajib diisi'
-            });
+    const [rows] = await pool.execute(
+      `SELECT id, full_name, email, password, role, company_name, position,
+              address, date_of_birth, phone, is_active, created_at
+       FROM users
+       WHERE LOWER(email) = LOWER(?)`,
+      [cleanEmail]
+    );
+    if (!rows.length) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Email atau password salah" });
+    }
+
+    const user = rows[0];
+    if (!user.is_active) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Akun Anda dinonaktifkan" });
+    }
+
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Email atau password salah" });
+    }
+
+    const tokens = generateToken(user);
+    refreshTokens.push(tokens.refreshToken);
+
+    const { password: _, ...userWithoutPassword } = user;
+    return res.json({
+      success: true,
+      message: "Login berhasil",
+      data: { user: userWithoutPassword, tokens },
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
+};
+
+// ===== Refresh Token =====
+const refreshToken = async (req, res) => {
+  try {
+    const { refreshToken: rt } = req.body;
+    if (!rt) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Refresh token diperlukan" });
+    }
+    if (!refreshTokens.includes(rt)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Refresh token tidak valid" });
+    }
+
+    jwt.verify(
+      rt,
+      (process.env.JWT_SECRET || "") + "_refresh",
+      async (err, decoded) => {
+        if (err) {
+          return res.status(403).json({
+            success: false,
+            message: "Refresh token tidak valid atau kedaluwarsa",
+          });
         }
 
-        // Find user by email
-        const [users] = await pool.execute(
-            `SELECT id, full_name, email, password, role, company_name, position, 
-                    address, date_of_birth, phone, is_active, created_at
-             FROM users WHERE email = ?`,
-            [email]
+        const [[u]] = await pool.execute(
+          "SELECT id, email, role, is_active FROM users WHERE id = ?",
+          [decoded.id]
         );
-
-        if (users.length === 0) {
-            console.log('❌ User not found:', email);
-            return res.status(401).json({
-                success: false,
-                message: 'Email atau password salah'
+        if (!u || !u.is_active) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message: "User tidak ditemukan atau tidak aktif",
             });
         }
 
-        const user = users[0];
-
-        // Check if user is active
-        if (!user.is_active) {
-            console.log('❌ User inactive:', email);
-            return res.status(403).json({
-                success: false,
-                message: 'Akun Anda telah dinonaktifkan. Silakan hubungi administrator.'
-            });
-        }
-
-        // Verify password
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            console.log('❌ Invalid password for:', email);
-            return res.status(401).json({
-                success: false,
-                message: 'Email atau password salah'
-            });
-        }
-
-        // Generate tokens
-        const tokens = generateToken(user);
-
-        // Simpan refresh token
+        // Rotasi token
+        const tokens = generateToken(u);
+        refreshTokens = refreshTokens.filter((t) => t !== rt);
         refreshTokens.push(tokens.refreshToken);
 
-        // Remove password from response
-        const { password: _, ...userWithoutPassword } = user;
-
-        console.log(`✅ Login successful for user ID: ${user.id} (${user.role})`);
-
-        res.json({
-            success: true,
-            message: 'Login berhasil',
-            data: {
-                user: userWithoutPassword,
-                tokens
-            }
+        return res.json({
+          success: true,
+          message: "Token berhasil diperbarui",
+          data: { tokens },
         });
-
-    } catch (error) {
-        console.error('❌ Login error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
+      }
+    );
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
-// Refresh Token
-const refreshToken = async (req, res) => {
-    try {
-        const { refreshToken } = req.body;
-
-        console.log('🔄 Refreshing token...');
-
-        if (!refreshToken) {
-            return res.status(401).json({
-                success: false,
-                message: 'Refresh token diperlukan'
-            });
-        }
-
-        if (!refreshTokens.includes(refreshToken)) {
-            return res.status(403).json({
-                success: false,
-                message: 'Refresh token tidak valid'
-            });
-        }
-
-        jwt.verify(refreshToken, process.env.JWT_SECRET + '_refresh', async (err, decoded) => {
-            if (err) {
-                console.log('❌ Invalid refresh token');
-                return res.status(403).json({
-                    success: false,
-                    message: 'Refresh token tidak valid atau telah kedaluwarsa'
-                });
-            }
-
-            // Get user data
-            const [users] = await pool.execute(
-                'SELECT id, email, role, is_active FROM users WHERE id = ?',
-                [decoded.id]
-            );
-
-            if (users.length === 0 || !users[0].is_active) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'User tidak ditemukan atau tidak aktif'
-                });
-            }
-
-            const user = users[0];
-            const tokens = generateToken(user);
-
-            // Hapus refresh token lama dan tambahkan yang baru
-            refreshTokens = refreshTokens.filter(token => token !== refreshToken);
-            refreshTokens.push(tokens.refreshToken);
-
-            console.log(`✅ Token refreshed for user ID: ${user.id}`);
-
-            res.json({
-                success: true,
-                message: 'Token berhasil diperbarui',
-                data: { tokens }
-            });
-        });
-
-    } catch (error) {
-        console.error('❌ Refresh token error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-// Logout
+// ===== Logout =====
 const logout = async (req, res) => {
-    try {
-        const { refreshToken } = req.body;
-
-        console.log('🚪 Logging out user...');
-
-        if (refreshToken) {
-            // Hapus refresh token dari storage
-            refreshTokens = refreshTokens.filter(token => token !== refreshToken);
-        }
-
-        console.log('✅ Logout successful');
-
-        res.json({
-            success: true,
-            message: 'Logout berhasil'
-        });
-
-    } catch (error) {
-        console.error('❌ Logout error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
+  try {
+    const { refreshToken: rt } = req.body;
+    if (rt) refreshTokens = refreshTokens.filter((t) => t !== rt);
+    return res.json({ success: true, message: "Logout berhasil" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
-// Get current user profile
+// ===== Get Profile =====
 const getProfile = async (req, res) => {
-    try {
-        const userId = req.user.id;
+  try {
+    const userId = req.user.id;
 
-        console.log(`📋 Getting profile for user ID: ${userId}`);
-
-        const [users] = await pool.execute(
-            `SELECT id, full_name, email, role, company_name, company_address, position, 
-                    address, date_of_birth, phone, created_at, updated_at, is_active
-             FROM users WHERE id = ?`,
-            [userId]
-        );
-
-        if (users.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'User tidak ditemukan'
-            });
-        }
-
-        const user = users[0];
-
-        // Untuk pelamar, ambil data tambahan dari pelamar_profiles
-        if (user.role === 'pelamar') {
-            const [profile] = await pool.execute(
-                `SELECT education_level, major, institution_name, gpa, 
-                        entry_year, graduation_year, profile_photo,
-                        cv_file, cover_letter_file, portfolio_file
-                 FROM pelamar_profiles WHERE user_id = ?`,
-                [userId]
-            );
-            
-            user.profile = profile[0] || {};
-        }
-
-        // Untuk HR, ambil data tambahan dari hr_profiles
-        if (user.role === 'hr') {
-            const [profile] = await pool.execute(
-                `SELECT department, employee_count, company_description
-                 FROM hr_profiles WHERE user_id = ?`,
-                [userId]
-            );
-            
-            user.profile = profile[0] || {};
-        }
-
-        console.log(`✅ Profile retrieved for user ID: ${userId}`);
-
-        res.json({
-            success: true,
-            data: user
-        });
-
-    } catch (error) {
-        console.error('❌ Get profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+    const [[user]] = await pool.execute(
+      `SELECT id, full_name, email, role, company_name, company_address, position,
+              address, date_of_birth, phone, created_at, updated_at, is_active
+       FROM users WHERE id = ?`,
+      [userId]
+    );
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User tidak ditemukan" });
     }
+
+    if (user.role === "pelamar") {
+      const [[p]] = await pool.execute(
+        `SELECT education_level, major, institution_name, gpa,
+                entry_year, graduation_year, profile_photo,
+                cv_file, cover_letter_file, portfolio_file
+         FROM pelamar_profiles WHERE user_id = ?`,
+        [userId]
+      );
+      user.profile = p || {};
+    }
+
+    if (user.role === "hr") {
+      const [[p]] = await pool.execute(
+        `SELECT department, employee_count, company_description
+         FROM hr_profiles WHERE user_id = ?`,
+        [userId]
+      );
+      user.profile = p || {};
+    }
+
+    return res.json({ success: true, data: user });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
-// Change Password
+// ===== Change Password =====
 const changePassword = async (req, res) => {
-    const connection = await pool.getConnection();
-    
-    try {
-        await connection.beginTransaction();
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.id;
 
-        const { currentPassword, newPassword } = req.body;
-        const userId = req.user.id;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "Password lama dan baru wajib diisi",
+    });
+  }
+  if (String(newPassword).length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Password baru minimal 6 karakter",
+    });
+  }
 
-        console.log(`🔑 Changing password for user ID: ${userId}`);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
 
-        // Validasi input
-        if (!currentPassword || !newPassword) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password lama dan password baru wajib diisi'
-            });
-        }
-
-        if (newPassword.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password baru minimal 6 karakter'
-            });
-        }
-
-        // Get current password
-        const [users] = await connection.execute(
-            'SELECT password FROM users WHERE id = ?',
-            [userId]
-        );
-
-        if (users.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'User tidak ditemukan'
-            });
-        }
-
-        // Verify current password
-        const isPasswordValid = await bcrypt.compare(currentPassword, users[0].password);
-        if (!isPasswordValid) {
-            return res.status(401).json({
-                success: false,
-                message: 'Password lama tidak sesuai'
-            });
-        }
-
-        // Hash new password
-        const saltRounds = 12;
-        const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
-
-        // Update password
-        await connection.execute(
-            'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
-            [hashedPassword, userId]
-        );
-
-        await connection.commit();
-
-        console.log(`✅ Password changed successfully for user ID: ${userId}`);
-
-        res.json({
-            success: true,
-            message: 'Password berhasil diubah'
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('❌ Change password error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    } finally {
-        connection.release();
+    const [[row]] = await conn.execute(
+      "SELECT password FROM users WHERE id = ?",
+      [userId]
+    );
+    if (!row) {
+      await conn.rollback();
+      conn.release();
+      return res
+        .status(404)
+        .json({ success: false, message: "User tidak ditemukan" });
     }
+
+    const ok = await bcrypt.compare(currentPassword, row.password);
+    if (!ok) {
+      await conn.rollback();
+      conn.release();
+      return res
+        .status(401)
+        .json({ success: false, message: "Password lama tidak sesuai" });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 12);
+    await conn.execute(
+      "UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?",
+      [hash, userId]
+    );
+
+    await conn.commit();
+    conn.release();
+    return res.json({ success: true, message: "Password berhasil diubah" });
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {}
+    conn.release();
+    console.error("Change password error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server" });
+  }
 };
 
 module.exports = {
-    registerPelamar,
-    registerHR,
-    login,
-    refreshToken,
-    logout,
-    getProfile,
-    changePassword
+  registerPelamar,
+  registerHR,
+  login,
+  refreshToken,
+  logout,
+  getProfile,
+  changePassword,
 };
