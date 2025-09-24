@@ -1,29 +1,24 @@
 // utils/url.js
 function getBaseUrl(req) {
-  // PRIORITAS: PUBLIC_URL (kalau di-prod set ke domain Railway kamu)
   const fromEnv = (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
-  if (fromEnv) return fromEnv;
-
-  // fallback dari header / request (mendukung proxy)
+  if (fromEnv) return fromEnv; // pakai env kalau ada
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const host  = req.get('x-forwarded-host') || req.get('host');
   return `${proto}://${host}`;
 }
 
-function buildPublicUrl(req, relativePath) {
-  const base = getBaseUrl(req);
-  const clean = String(relativePath || '').replace(/^\/+/, '');
-  return `${base}/${clean}`;
-}
-
-function buildUploadUrl(req, type /* 'images'|'files' */, filename) {
+// Bangun URL: /uploads/<folder>/<filename>
+function buildUploadUrl(req, folder, filename) {
   if (!filename) return null;
-  const base = getBaseUrl(req);
-  return `${base}/uploads/${type}/${filename}`;
+  const cleanFolder = String(folder || '').replace(/^\/+|\/+$/g, '');
+  const cleanFile = String(filename || '').replace(/^\/+/, '');
+  return `${getBaseUrl(req)}/uploads/${cleanFolder}/${cleanFile}`;
 }
 
-module.exports = {
-  getBaseUrl,
-  buildPublicUrl,
-  buildUploadUrl
-};
+// Bebas path relatif → URL absolut
+function buildPublicUrl(req, relativePath) {
+  const clean = String(relativePath || '').replace(/^\/+/, '');
+  return `${getBaseUrl(req)}/${clean}`;
+}
+
+module.exports = { getBaseUrl, buildPublicUrl, buildUploadUrl };

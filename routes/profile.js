@@ -22,19 +22,6 @@ const ensureDirectoryExists = (dirPath) => {
 ensureDirectoryExists(path.join(process.cwd(), 'uploads', 'files'));
 ensureDirectoryExists(path.join(process.cwd(), 'uploads', 'images'));
 
-const getBaseUrl = (req) => {
-  const fromEnv = (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
-  if (fromEnv) return fromEnv;
-  const proto = req.get('x-forwarded-proto') || req.protocol;
-  const host = req.get('x-forwarded-host') || req.get('host');
-  return `${proto}://${host}`;
-};
-
-const filePublicUrl = (req, type /* 'images' | 'files' */, filename) => {
-  if (!filename) return null;
-  return `${getBaseUrl(req)}/uploads/${type}/${filename}`;
-};
-
 /* ===========================
    Multer: konfigurasi upload
    =========================== */
@@ -69,6 +56,14 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter
 });
+
+// terima beberapa nama field untuk foto (biar FE bebas pakai)
+const acceptPhotoFields = upload.fields([
+  { name: 'profile_photo', maxCount: 1 },
+  { name: 'photo',         maxCount: 1 },
+  { name: 'image',         maxCount: 1 },
+  { name: 'avatar',        maxCount: 1 },
+]);
 
 /* ===========================
    Helper: pastikan profil pelamar
@@ -125,16 +120,18 @@ router.get('/', authenticateToken, requireRole('pelamar'), async (req, res) => {
 
     const profile = profileRows[0];
 
-    // lampirkan URL absolut untuk file-file di profil
+    // URL file publik
     const profile_photo_url = profile.profile_photo
-    ? buildUploadUrl(req, 'images', profile.profile_photo)
-    : null;
-    const cv_file_url = profile.cv_file ? filePublicUrl(req, 'files', profile.cv_file) : null;
+      ? buildUploadUrl(req, 'images', profile.profile_photo)
+      : null;
+    const cv_file_url = profile.cv_file
+      ? buildUploadUrl(req, 'files', profile.cv_file)
+      : null;
     const cover_letter_file_url = profile.cover_letter_file
-      ? filePublicUrl(req, 'files', profile.cover_letter_file)
+      ? buildUploadUrl(req, 'files', profile.cover_letter_file)
       : null;
     const portfolio_file_url = profile.portfolio_file
-      ? filePublicUrl(req, 'files', profile.portfolio_file)
+      ? buildUploadUrl(req, 'files', profile.portfolio_file)
       : null;
 
     const [workExp] = await pool.execute(
@@ -145,10 +142,9 @@ router.get('/', authenticateToken, requireRole('pelamar'), async (req, res) => {
       'SELECT id,certificate_name,issuer,issue_date,expiry_date,certificate_file,created_at,updated_at FROM certificates WHERE user_id = ? ORDER BY issue_date DESC',
       [userId]
     );
-    // tambahkan url file sertifikat
     const certsWithUrl = certificates.map(c => ({
       ...c,
-      certificate_file_url: c.certificate_file ? filePublicUrl(req, 'files', c.certificate_file) : null
+      certificate_file_url: c.certificate_file ? buildUploadUrl(req, 'files', c.certificate_file) : null
     }));
 
     const [skills] = await pool.execute(
@@ -342,7 +338,7 @@ router.post(
         data: {
           id: result.insertId,
           certificate_file: certFile,
-          certificate_file_url: certFile ? filePublicUrl(req, 'files', certFile) : null
+          certificate_file_url: certFile ? buildUploadUrl(req, 'files', certFile) : null
         }
       });
     } catch (error) {
@@ -370,7 +366,6 @@ router.put(
                        SET certificate_name=?, issuer=?, issue_date=?, expiry_date=?, updated_at=NOW()`;
       const params = [certificate_name, issuer, issue_date, expiry_date || null];
 
-      // ganti file lama bila ada file baru
       if (req.file) {
         const [old] = await pool.execute(
           'SELECT certificate_file FROM certificates WHERE id=? AND user_id=?',
@@ -396,7 +391,7 @@ router.put(
       return res.json({
         success: true,
         message: 'Sertifikat berhasil diperbarui',
-        certificate_file_url: req.file ? filePublicUrl(req, 'files', req.file.filename) : undefined
+        certificate_file_url: req.file ? buildUploadUrl(req, 'files', req.file.filename) : undefined
       });
     } catch (error) {
       console.error('❌ Error updating certificate:', error);
@@ -421,7 +416,6 @@ router.delete('/certificate/:id', authenticateToken, requireRole('pelamar'), asy
       return res.status(404).json({ success: false, message: 'Sertifikat tidak ditemukan' });
     }
 
-    // hapus file fisik
     if (cert[0].certificate_file) {
       const f = path.join(process.cwd(), 'uploads', 'files', cert[0].certificate_file);
       if (fs.existsSync(f)) fs.unlinkSync(f);
@@ -488,12 +482,12 @@ router.post(
           portfolio_file: files.portfolio_file?.[0]?.filename || null
         },
         urls: {
-          cv_file_url: files.cv_file?.[0] ? filePublicUrl(req, 'files', files.cv_file[0].filename) : null,
+          cv_file_url: files.cv_file?.[0] ? buildUploadUrl(req, 'files', files.cv_file[0].filename) : null,
           cover_letter_file_url: files.cover_letter_file?.[0]
-            ? filePublicUrl(req, 'files', files.cover_letter_file[0].filename)
+            ? buildUploadUrl(req, 'files', files.cover_letter_file[0].filename)
             : null,
           portfolio_file_url: files.portfolio_file?.[0]
-            ? filePublicUrl(req, 'files', files.portfolio_file[0].filename)
+            ? buildUploadUrl(req, 'files', files.portfolio_file[0].filename)
             : null
         }
       });
@@ -511,12 +505,21 @@ router.post(
   '/upload-photo',
   authenticateToken,
   requireRole('pelamar'),
-  upload.single('profile_photo'),
+  acceptPhotoFields, // ← TERIMA profile_photo | photo | image | avatar
   async (req, res) => {
     try {
       const userId = req.user.id;
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: 'Tidak ada file yang diupload' });
+      const f =
+        (req.files?.profile_photo?.[0]) ||
+        (req.files?.photo?.[0]) ||
+        (req.files?.image?.[0]) ||
+        (req.files?.avatar?.[0]);
+
+      if (!f) {
+        return res.status(400).json({
+          success: false,
+          message: 'Field file tidak dikenali (pakai: profile_photo / photo / image / avatar)'
+        });
       }
 
       await ensurePelamarProfileExists(userId);
@@ -534,14 +537,14 @@ router.post(
 
       await pool.execute(
         'UPDATE pelamar_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?',
-        [req.file.filename, userId]
+        [f.filename, userId]
       );
 
       return res.json({
         success: true,
         message: 'Foto profil berhasil diupload',
-        filename: req.file.filename,
-        url: filePublicUrl(req, 'images', req.file.filename)
+        filename: f.filename,
+        url: buildUploadUrl(req, 'images', f.filename)
       });
     } catch (error) {
       console.error('❌ Error uploading profile photo:', error);
