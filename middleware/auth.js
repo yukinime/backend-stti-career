@@ -1,93 +1,71 @@
 // middleware/auth.js
 const jwt = require('jsonwebtoken');
-const db = require('../config/database');
+// kita pakai helper execute agar simple, sesuai config/database.js
+const { execute } = require('../config/database');
 
 /**
- * Middleware untuk autentikasi JWT
+ * Autentikasi JWT dengan toleransi jam & cek user aktif (opsional)
  */
 const authenticateToken = async (req, res, next) => {
+  // Ambil token dari header (support Bearer xxx atau langsung token)
+  const raw = req.headers['authorization'] || req.headers['Authorization'] || '';
+  const token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : raw.trim();
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Token akses diperlukan' });
+  }
+
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // format: Bearer TOKEN
+    // Toleransi 15 detik untuk skew waktu
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 15 });
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Token akses diperlukan'
-      });
+    // Opsional: cek user aktif di DB (default: on). Set AUTH_CHECK_DB=0 kalau mau skip.
+    if (process.env.AUTH_CHECK_DB !== '0') {
+      const [rows] = await execute(
+        'SELECT id, email, role, is_active FROM users WHERE id = ? LIMIT 1',
+        [decoded.id]
+      );
+
+      if (!rows.length || rows[0].is_active !== 1) {
+        return res.status(403).json({
+          success: false,
+          message: 'User tidak ditemukan atau tidak aktif',
+        });
+      }
+
+      // Sinkronkan role/email dari DB (kalau berubah)
+      req.user = { id: rows[0].id, email: rows[0].email, role: rows[0].role };
+    } else {
+      // Tanpa cek DB, pakai payload token
+      req.user = { id: decoded.id, email: decoded.email, role: decoded.role };
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Opsional: cek apakah user masih ada & aktif
-    const [users] = await db.execute(
-      'SELECT id, email, role, is_active FROM users WHERE id = ? AND is_active = 1',
-      [decoded.id]
-    );
-
-    if (users.length === 0) {
-      return res.status(403).json({
-        success: false,
-        message: 'User tidak ditemukan atau tidak aktif'
-      });
+    return next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Token sudah kadaluarsa', code: 'TOKEN_EXPIRED' });
     }
-
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role
-    };
-
-    next();
-  } catch (error) {
-    console.error('JWT verification error:', error);
-
-    if (error.name === 'TokenExpiredError') {
-      return res.status(403).json({
-        success: false,
-        message: 'Token sudah kadaluarsa'
-      });
-    }
-
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(403).json({
-        success: false,
-        message: 'Token tidak valid'
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: 'Gagal memverifikasi token'
-    });
+    return res.status(401).json({ success: false, message: 'Token tidak valid', code: 'TOKEN_INVALID' });
   }
 };
 
 /**
- * Middleware generator untuk cek role
+ * Guard role: bisa multi-role -> requireRole('admin','hr')
  */
-const requireRole = (requiredRole) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User tidak terautentikasi'
-      });
-    }
-
-    if (req.user.role !== requiredRole) {
-      return res.status(403).json({
-        success: false,
-        message: `Akses ditolak. Diperlukan role: ${requiredRole}`
-      });
-    }
-
-    next();
-  };
+const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'User tidak terautentikasi' });
+  }
+  if (roles.length && !roles.includes(req.user.role)) {
+    return res.status(403).json({
+      success: false,
+      message: `Akses ditolak. Role yang diizinkan: ${roles.join(', ')}`,
+    });
+  }
+  next();
 };
 
-// Shortcut alias biar gampang dipakai di routes
+// Alias lama biar kompatibel
 const isAdmin = requireRole('admin');
 const isHR = requireRole('hr');
 const isPelamar = requireRole('pelamar');
@@ -97,5 +75,5 @@ module.exports = {
   requireRole,
   isAdmin,
   isHR,
-  isPelamar
+  isPelamar,
 };
