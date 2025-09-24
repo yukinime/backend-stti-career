@@ -137,6 +137,29 @@ app.use((err, req, res, _next) => {
   });
 });
 
+const path = require('path');
+const fs = require('fs');
+
+app.set('trust proxy', 1); // penting untuk x-forwarded-proto → https
+
+const uploadsBase = path.resolve(__dirname, 'uploads');
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+ensureDir(path.join(uploadsBase, 'images'));
+ensureDir(path.join(uploadsBase, 'files'));
+
+// Sajikan /uploads sebagai file statis publik (+CORS + cache)
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  },
+  express.static(uploadsBase, { index: false, dotfiles: 'ignore' })
+);
+
 // 404
 app.use('*', (req, res) => {
   res.status(404).json({
