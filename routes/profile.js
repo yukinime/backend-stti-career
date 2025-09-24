@@ -98,6 +98,103 @@ const ensurePelamarProfileExists = async (userId) => {
   }
 };
 
+/* ------------------------------------------------------------------
+   💡 Tambahan helper: columnExists + getter/setter foto per role
+------------------------------------------------------------------- */
+
+// Cek apakah sebuah kolom ada (dinamis, aman untuk DB yang belum punya kolom foto di hr/users)
+async function columnExists(table, column) {
+  const [rows] = await pool.execute(
+    `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = ? 
+       AND COLUMN_NAME = ? 
+     LIMIT 1`,
+    [table, column]
+  );
+  return rows.length > 0;
+}
+
+// Ambil nama file foto lama berdasarkan role (prioritas: tabel role masing-masing)
+async function getCurrentPhoto(userId, role) {
+  try {
+    if (role === 'pelamar') {
+      const [r] = await pool.execute('SELECT profile_photo FROM pelamar_profiles WHERE user_id=?', [userId]);
+      return r[0]?.profile_photo || null;
+    }
+    if (role === 'hr') {
+      if (await columnExists('hr_profiles', 'profile_photo')) {
+        const [r] = await pool.execute('SELECT profile_photo FROM hr_profiles WHERE user_id=?', [userId]);
+        return r[0]?.profile_photo || null;
+      }
+      if (await columnExists('users', 'profile_photo')) {
+        const [r] = await pool.execute('SELECT profile_photo FROM users WHERE id=?', [userId]);
+        return r[0]?.profile_photo || null;
+      }
+      return null;
+    }
+    // admin
+    if (await columnExists('users', 'profile_photo')) {
+      const [r] = await pool.execute('SELECT profile_photo FROM users WHERE id=?', [userId]);
+      return r[0]?.profile_photo || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Simpan nama file foto ke tabel sesuai role jika kolomnya tersedia
+async function setPhoto(userId, role, filenameOrNull) {
+  if (role === 'pelamar') {
+    await ensurePelamarProfileExists(userId);
+    await pool.execute(
+      'UPDATE pelamar_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?',
+      [filenameOrNull, userId]
+    );
+    return true;
+  }
+  if (role === 'hr') {
+    if (await columnExists('hr_profiles', 'profile_photo')) {
+      await pool.execute(
+        'UPDATE hr_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?',
+        [filenameOrNull, userId]
+      );
+      return true;
+    }
+    if (await columnExists('users', 'profile_photo')) {
+      await pool.execute(
+        'UPDATE users SET profile_photo=?, updated_at=NOW() WHERE id=?',
+        [filenameOrNull, userId]
+      );
+      return true;
+    }
+    return false;
+  }
+  // admin
+  if (await columnExists('users', 'profile_photo')) {
+    await pool.execute(
+      'UPDATE users SET profile_photo=?, updated_at=NOW() WHERE id=?',
+      [filenameOrNull, userId]
+    );
+    return true;
+  }
+  return false;
+}
+
+function getPickedPhoto(req) {
+  return (req.files?.profile_photo?.[0]) ||
+         (req.files?.photo?.[0]) ||
+         (req.files?.image?.[0]) ||
+         (req.files?.avatar?.[0]) || null;
+}
+
+function removeLocalFileIfExists(relativeDir, filename) {
+  if (!filename) return;
+  const full = path.join(process.cwd(), 'uploads', relativeDir, filename);
+  if (fs.existsSync(full)) fs.unlinkSync(full);
+}
+
 /* ===========================
    GET /api/profile
    =========================== */
@@ -432,6 +529,7 @@ router.delete('/certificate/:id', authenticateToken, requireRole('pelamar'), asy
 
 /* ===========================
    POST /api/profile/upload-files
+   (PELAMAR)
    =========================== */
 router.post(
   '/upload-files',
@@ -500,6 +598,7 @@ router.post(
 
 /* ===========================
    POST /api/profile/upload-photo
+   (PELAMAR – EXISTING)
    =========================== */
 router.post(
   '/upload-photo',
@@ -553,67 +652,266 @@ router.post(
   }
 );
 
-/* ===========================
-   SKILL CRUD
-   =========================== */
-router.post('/skill', authenticateToken, requireRole('pelamar'), async (req, res) => {
+/* ============================================================
+   ✅ Tambahan sesuai permintaan:
+   PELAMAR: PUT + DELETE foto
+   ============================================================ */
+router.put(
+  '/upload-photo',
+  authenticateToken,
+  requireRole('pelamar'),
+  acceptPhotoFields,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const f = getPickedPhoto(req);
+      if (!f) {
+        return res.status(400).json({ success: false, message: 'Tidak ada file yang diupload' });
+      }
+
+      // hapus foto lama user ini saja
+      const old = await getCurrentPhoto(userId, 'pelamar');
+      removeLocalFileIfExists('images', old);
+
+      await pool.execute(
+        'UPDATE pelamar_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?',
+        [f.filename, userId]
+      );
+
+      return res.json({
+        success: true,
+        message: 'Foto profil berhasil diperbarui',
+        filename: f.filename,
+        url: buildUploadUrl(req, 'images', f.filename)
+      });
+    } catch (error) {
+      console.error('❌ PUT /upload-photo error:', error);
+      return res.status(500).json({ success: false, message: 'Gagal memperbarui foto profil' });
+    }
+  }
+);
+
+router.delete('/photo', authenticateToken, requireRole('pelamar'), async (req, res) => {
   try {
     const userId = req.user.id;
-    const { skill_name, skill_level } = req.body;
-    if (!skill_name || !skill_level) {
-      return res.status(400).json({ success: false, message: 'Nama skill dan level wajib diisi' });
+    const old = await getCurrentPhoto(userId, 'pelamar');
+    if (!old) {
+      return res.json({ success: true, message: 'Tidak ada foto untuk dihapus' });
     }
-
-    const [result] = await pool.execute(
-      'INSERT INTO skills (user_id, skill_name, skill_level) VALUES (?, ?, ?)',
-      [userId, skill_name, skill_level]
+    removeLocalFileIfExists('images', old);
+    await pool.execute(
+      'UPDATE pelamar_profiles SET profile_photo=NULL, updated_at=NOW() WHERE user_id=?',
+      [userId]
     );
+    return res.json({ success: true, message: 'Foto profil berhasil dihapus' });
+  } catch (e) {
+    console.error('❌ DELETE /photo error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus foto profil' });
+  }
+});
+
+/* ============================================================
+   ✅ Endpoint NETRAL untuk SEMUA ROLE (pelamar/hr/admin)
+   - Operasi berlaku hanya untuk user yg login (by token)
+   - Tidak memengaruhi user lain
+   ============================================================ */
+
+// FOTO PROFIL – ANY ROLE
+router.post('/me/photo', authenticateToken, acceptPhotoFields, async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const role = req.user.role;
+    const f = getPickedPhoto(req);
+    if (!f) return res.status(400).json({ success: false, message: 'Tidak ada file yang diupload' });
+
+    // hapus foto lama milik user ini
+    const old = await getCurrentPhoto(uid, role);
+    removeLocalFileIfExists('images', old);
+
+    // simpan ke tabel sesuai role jika kolom ada
+    const stored = await setPhoto(uid, role, f.filename);
+
     return res.json({
       success: true,
-      message: 'Skill berhasil ditambahkan',
-      data: { id: result.insertId }
+      message: stored ? 'Foto profil berhasil diupload' : 'Foto diupload (URL dikembalikan, DB tidak diubah karena kolom tidak tersedia)',
+      filename: f.filename,
+      url: buildUploadUrl(req, 'images', f.filename)
     });
-  } catch (error) {
-    console.error('❌ Error adding skill:', error);
-    return res.status(500).json({ success: false, message: 'Gagal menambahkan skill' });
+  } catch (e) {
+    console.error('❌ POST /me/photo error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal mengupload foto profil' });
   }
 });
 
-router.put('/skill/:id', authenticateToken, requireRole('pelamar'), async (req, res) => {
+router.put('/me/photo', authenticateToken, acceptPhotoFields, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const skillId = req.params.id;
-    const { skill_name, skill_level } = req.body;
-    if (!skill_name || !skill_level) {
-      return res.status(400).json({ success: false, message: 'Nama skill dan level wajib diisi' });
+    const uid = req.user.id;
+    const role = req.user.role;
+    const f = getPickedPhoto(req);
+    if (!f) return res.status(400).json({ success: false, message: 'Tidak ada file yang diupload' });
+
+    const old = await getCurrentPhoto(uid, role);
+    removeLocalFileIfExists('images', old);
+
+    const stored = await setPhoto(uid, role, f.filename);
+
+    return res.json({
+      success: true,
+      message: stored ? 'Foto profil berhasil diperbarui' : 'Foto diupload (URL dikembalikan, DB tidak diubah karena kolom tidak tersedia)',
+      filename: f.filename,
+      url: buildUploadUrl(req, 'images', f.filename)
+    });
+  } catch (e) {
+    console.error('❌ PUT /me/photo error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal memperbarui foto profil' });
+  }
+});
+
+router.delete('/me/photo', authenticateToken, async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const role = req.user.role;
+    const old = await getCurrentPhoto(uid, role);
+    if (!old) {
+      // kalau tak tersimpan di DB (kolom tidak ada), minimal hapus file apa pun tidak bisa karena kita tidak tahu namanya
+      return res.json({ success: true, message: 'Tidak ada foto tersimpan untuk user ini' });
+    }
+    removeLocalFileIfExists('images', old);
+    await setPhoto(uid, role, null);
+    return res.json({ success: true, message: 'Foto profil berhasil dihapus' });
+  } catch (e) {
+    console.error('❌ DELETE /me/photo error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus foto profil' });
+  }
+});
+
+// DOKUMEN – ANY ROLE (disimpan ke DB hanya untuk pelamar)
+const uploadDocsAny = upload.fields([
+  { name: 'cv_file', maxCount: 1 },
+  { name: 'cover_letter_file', maxCount: 1 },
+  { name: 'portfolio_file', maxCount: 1 }
+]);
+
+async function updatePelamarDocs(uid, files) {
+  const sets = [];
+  const vals = [];
+  if (files.cv_file?.[0])          { sets.push('cv_file=?'); vals.push(files.cv_file[0].filename); }
+  if (files.cover_letter_file?.[0]){ sets.push('cover_letter_file=?'); vals.push(files.cover_letter_file[0].filename); }
+  if (files.portfolio_file?.[0])   { sets.push('portfolio_file=?'); vals.push(files.portfolio_file[0].filename); }
+  if (!sets.length) return false;
+  vals.push(uid);
+  await pool.execute(`UPDATE pelamar_profiles SET ${sets.join(', ')}, updated_at=NOW() WHERE user_id=?`, vals);
+  return true;
+}
+
+router.post('/me/files', authenticateToken, uploadDocsAny, async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const role = req.user.role;
+    const files = req.files || {};
+
+    if (role === 'pelamar') await ensurePelamarProfileExists(uid);
+    if (role === 'pelamar') await updatePelamarDocs(uid, files);
+
+    return res.json({
+      success: true,
+      message: role === 'pelamar' ? 'File berhasil diupload' : 'File diupload (URL dikembalikan, DB tidak diubah)',
+      files: {
+        cv_file: files.cv_file?.[0]?.filename || null,
+        cover_letter_file: files.cover_letter_file?.[0]?.filename || null,
+        portfolio_file: files.portfolio_file?.[0]?.filename || null
+      },
+      urls: {
+        cv_file_url: files.cv_file?.[0] ? buildUploadUrl(req, 'files', files.cv_file[0].filename) : null,
+        cover_letter_file_url: files.cover_letter_file?.[0] ? buildUploadUrl(req, 'files', files.cover_letter_file[0].filename) : null,
+        portfolio_file_url: files.portfolio_file?.[0] ? buildUploadUrl(req, 'files', files.portfolio_file[0].filename) : null
+      }
+    });
+  } catch (e) {
+    console.error('❌ POST /me/files error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal mengupload file' });
+  }
+});
+
+router.put('/me/files', authenticateToken, uploadDocsAny, async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const role = req.user.role;
+    const files = req.files || {};
+
+    if (role === 'pelamar') {
+      const [old] = await pool.execute(
+        'SELECT cv_file, cover_letter_file, portfolio_file FROM pelamar_profiles WHERE user_id=?',
+        [uid]
+      );
+      const o = old[0] || {};
+      if (files.cv_file?.[0] && o.cv_file) {
+        removeLocalFileIfExists('files', o.cv_file);
+      }
+      if (files.cover_letter_file?.[0] && o.cover_letter_file) {
+        removeLocalFileIfExists('files', o.cover_letter_file);
+      }
+      if (files.portfolio_file?.[0] && o.portfolio_file) {
+        removeLocalFileIfExists('files', o.portfolio_file);
+      }
+      await updatePelamarDocs(uid, files);
     }
 
-    const [result] = await pool.execute(
-      'UPDATE skills SET skill_name=?, skill_level=?, updated_at=NOW() WHERE id=? AND user_id=?',
-      [skill_name, skill_level, skillId, userId]
+    return res.json({
+      success: true,
+      message: role === 'pelamar' ? 'File berhasil diperbarui' : 'File diupload (URL dikembalikan, DB tidak diubah)',
+      urls: {
+        cv_file_url: files.cv_file?.[0] ? buildUploadUrl(req, 'files', files.cv_file[0].filename) : null,
+        cover_letter_file_url: files.cover_letter_file?.[0] ? buildUploadUrl(req, 'files', files.cover_letter_file[0].filename) : null,
+        portfolio_file_url: files.portfolio_file?.[0] ? buildUploadUrl(req, 'files', files.portfolio_file[0].filename) : null
+      }
+    });
+  } catch (e) {
+    console.error('❌ PUT /me/files error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal memperbarui file' });
+  }
+});
+
+// body JSON: { cv_file:true, cover_letter_file:true, portfolio_file:true }
+router.delete('/me/files', authenticateToken, async (req, res) => {
+  try {
+    const uid = req.user.id;
+    const role = req.user.role;
+    if (role !== 'pelamar') {
+      return res.json({ success: true, message: 'Tidak ada file tersimpan di DB untuk role ini. Abaikan.' });
+    }
+    const { cv_file, cover_letter_file, portfolio_file } = req.body || {};
+    const [old] = await pool.execute(
+      'SELECT cv_file, cover_letter_file, portfolio_file FROM pelamar_profiles WHERE user_id=?',
+      [uid]
     );
-    if (!result.affectedRows) {
-      return res.status(404).json({ success: false, message: 'Skill tidak ditemukan' });
-    }
-    return res.json({ success: true, message: 'Skill berhasil diperbarui' });
-  } catch (error) {
-    console.error('❌ Error updating skill:', error);
-    return res.status(500).json({ success: false, message: 'Gagal memperbarui skill' });
-  }
-});
+    const o = old[0] || {};
+    const sets = [];
 
-router.delete('/skill/:id', authenticateToken, requireRole('pelamar'), async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const skillId = req.params.id;
-    const [result] = await pool.execute('DELETE FROM skills WHERE id=? AND user_id=?', [skillId, userId]);
-    if (!result.affectedRows) {
-      return res.status(404).json({ success: false, message: 'Skill tidak ditemukan' });
+    if (cv_file && o.cv_file) {
+      removeLocalFileIfExists('files', o.cv_file);
+      sets.push('cv_file=NULL');
     }
-    return res.json({ success: true, message: 'Skill berhasil dihapus' });
-  } catch (error) {
-    console.error('❌ Error deleting skill:', error);
-    return res.status(500).json({ success: false, message: 'Gagal menghapus skill' });
+    if (cover_letter_file && o.cover_letter_file) {
+      removeLocalFileIfExists('files', o.cover_letter_file);
+      sets.push('cover_letter_file=NULL');
+    }
+    if (portfolio_file && o.portfolio_file) {
+      removeLocalFileIfExists('files', o.portfolio_file);
+      sets.push('portfolio_file=NULL');
+    }
+
+    if (sets.length) {
+      await pool.execute(
+        `UPDATE pelamar_profiles SET ${sets.join(', ')}, updated_at=NOW() WHERE user_id=?`,
+        [uid]
+      );
+    }
+
+    return res.json({ success: true, message: 'File berhasil dihapus' });
+  } catch (e) {
+    console.error('❌ DELETE /me/files error:', e);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus file' });
   }
 });
 
