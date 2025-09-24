@@ -33,8 +33,6 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Static files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Simple request logger
 app.use((req, _res, next) => {
@@ -140,7 +138,7 @@ app.use((err, req, res, _next) => {
 const path = require('path');
 const fs = require('fs');
 
-app.set('trust proxy', 1); // penting untuk x-forwarded-proto → https
+app.set('trust proxy', 1); // penting agar x-forwarded-proto terbaca jadi https di Railway
 
 const uploadsBase = path.resolve(__dirname, 'uploads');
 function ensureDir(dir) {
@@ -153,8 +151,8 @@ ensureDir(path.join(uploadsBase, 'files'));
 app.use(
   '/uploads',
   (req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // agar gambar bisa di-load dari FE domain manapun
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // cache panjang utk static
     next();
   },
   express.static(uploadsBase, { index: false, dotfiles: 'ignore' })
