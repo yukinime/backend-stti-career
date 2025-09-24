@@ -1,0 +1,994 @@
+{
+  "info": {
+    "name": "STTI Career API (Siap Frontend)",
+    "_postman_id": "stti-career-id-ready",
+    "description": "\n# Cara Pakai Koleksi (Postman) – Bahasa Indonesia\n\n1. Buka Postman → **Import** → pilih file ini.\n2. Buka tab **Variables**:\n   - `base_url` → `http://localhost:5000` (atau URL Railway kamu)\n   - `token` → kosong dulu.\n3. Jalankan **Auth → Login** → ambil `token` dari response → isi ke variable `token`.\n4. Semua request yang butuh auth akan otomatis menyertakan header `Authorization: Bearer {token}`.\n5. Untuk upload file, pilih **Body → form-data** dan isi file pada key yang diminta.\n\n_Diperbarui: 2025-09-19 02:10:51 WIB_\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Autentikasi & sesi pengguna",
+      "item": [
+        {
+          "name": "Register pelamar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/register/pelamar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Budi\",\n  \"email\": \"budi@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register HR",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/register/hr",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"HR Dina\",\n  \"email\": \"hr@corp.com\",\n  \"password\": \"secret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"secret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Profile (me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/profile"
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/logout",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Ganti Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/change-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"old_password\": \"oldpass\",\n  \"new_password\": \"newpass123\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Profile (Pelamar)",
+      "item": [
+        {
+          "name": "Get profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile"
+          }
+        },
+        {
+          "name": "Update biodata",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/biodata",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Budi\",\n  \"phone\": \"0812...\",\n  \"address\": \"Jakarta\",\n  \"date_of_birth\": \"2000-01-01\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update education",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/education",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"education_level\": \"S1\",\n  \"major\": \"Informatika\",\n  \"institution_name\": \"STTI\",\n  \"gpa\": 3.5,\n  \"entry_year\": 2018,\n  \"graduation_year\": 2022\n}"
+            }
+          }
+        },
+        {
+          "name": "Tambah work experience",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/work-experience",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"PT Maju\",\n  \"position\": \"Backend Dev\",\n  \"start_date\": \"2023-01-01\",\n  \"end_date\": null,\n  \"is_current\": 1,\n  \"job_description\": \"Node.js, MySQL\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ubah work experience",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/work-experience/:id",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"position\": \"Senior Backend\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Hapus work experience",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/work-experience/:id"
+          }
+        },
+        {
+          "name": "Tambah certificate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/certificate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"certificate_name\": \"AWS CCP\",\n  \"issuer\": \"Amazon\",\n  \"issue_date\": \"2024-05-01\",\n  \"expiry_date\": null\n}"
+            }
+          }
+        },
+        {
+          "name": "Ubah certificate",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/certificate/:id",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issuer\": \"Amazon Web Services\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Hapus certificate",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/certificate/:id"
+          }
+        },
+        {
+          "name": "Tambah skill",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/skill",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skill_name\": \"Node.js\",\n  \"skill_level\": \"Advanced\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ubah skill",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/skill/:id",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skill_level\": \"Expert\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Hapus skill",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/skill/:id"
+          }
+        },
+        {
+          "name": "Upload files (CV/CL/Porto)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/upload-files",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "cv_file",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "cover_letter_file",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "portfolio_file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "description": "Pakai form-data, pilih file pada 3 key tersebut"
+          }
+        },
+        {
+          "name": "Upload photo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/profile/upload-photo",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "description": "Pakai form-data"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookmarks (Pelamar)",
+      "item": [
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks"
+          }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_id\": 12\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete by id",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks/:id"
+          }
+        },
+        {
+          "name": "Delete by job",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks/job/:job_id"
+          }
+        },
+        {
+          "name": "Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks/check/:job_id"
+          }
+        },
+        {
+          "name": "Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks/stats"
+          }
+        },
+        {
+          "name": "Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/bookmarks/search?q=backend"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "List publik",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs"
+          }
+        },
+        {
+          "name": "Summary publik",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs/loker/summary"
+          }
+        },
+        {
+          "name": "Details publik",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs/details/:id"
+          }
+        },
+        {
+          "name": "Get by id publik",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs/:id"
+          }
+        },
+        {
+          "name": "Create (HR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/jobs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hr_id\": 22,\n  \"job_title\": \"Backend Engineer\",\n  \"description\": \"Go/Node backend\",\n  \"location\": \"Jakarta\",\n  \"is_active\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Update (HR)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/jobs/:id",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_title\": \"Backend Eng (Senior)\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete (HR)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/jobs/:id"
+          }
+        },
+        {
+          "name": "Verify (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/jobs/:id/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"verified\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Applicants (HR/Admin)",
+      "item": [
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/applicant"
+          }
+        },
+        {
+          "name": "Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/applicant/:id"
+          }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/applicant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_id\": 12,\n  \"user_id\": 21,\n  \"status\": \"submitted\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/applicant/:id/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"accepted\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/applicant/:id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Companies (HR/Admin)",
+      "item": [
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/company"
+          }
+        },
+        {
+          "name": "Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/company/:id"
+          }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/company",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nama_companies\": \"PT Keren\",\n  \"email_companies\": \"contact@keren.co\",\n  \"nomor_telepon\": \"021-1234567\",\n  \"website\": \"https://keren.co\",\n  \"alamat\": \"Jakarta\",\n  \"logo\": null,\n  \"is_active\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/company/:id",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/company/:id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (opsional, mount /api/admin)",
+      "item": [
+        {
+          "name": "Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/dashboard"
+          }
+        },
+        {
+          "name": "Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/logs"
+          }
+        },
+        {
+          "name": "Users list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/users?page=1&limit=10"
+          }
+        },
+        {
+          "name": "User by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/users/:id"
+          }
+        },
+        {
+          "name": "Update user status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/users/:id/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/users/:id"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,20 +1,21 @@
 // server.js
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
+const path = require('path');   // <- import sekali
+const fs = require('fs');       // <- import sekali
 const multer = require('multer');
 require('dotenv').config();
 
 const { testConnection, initializeDatabase } = require('./config/database');
 
-// Import routes
+// Routes
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
 const bookmarkRoutes = require('./routes/bookmarks');
 const jobRoutes = require('./routes/jobs');
 const applicantRoutes = require('./routes/applicant');
 const companyRoutes = require('./routes/company');
-const adminRoutes = require('./routes/admin'); // ✅ aktifkan admin
+const adminRoutes = require('./routes/admin'); // aktifkan admin
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,9 +24,9 @@ const VERSION = process.env.APP_VERSION || '1.0.0';
 // Trust proxy (Railway/Reverse proxy)
 app.set('trust proxy', 1);
 
-// CORS (aman untuk credentials)
+// CORS
 const corsOptions = {
-  origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true, // reflect request origin
+  origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true, // reflect origin
   credentials: true
 };
 app.use(cors(corsOptions));
@@ -33,14 +34,31 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Static files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Simple request logger
+// Logger sederhana
 app.use((req, _res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
   next();
 });
+
+// ---- PUBLIC UPLOADS STATIC (Railway-friendly) ----
+const uploadsBase = path.resolve(__dirname, 'uploads');
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+ensureDir(uploadsBase);
+ensureDir(path.join(uploadsBase, 'images'));
+ensureDir(path.join(uploadsBase, 'files'));
+
+// Serve /uploads dengan CORS & cache panjang
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  },
+  express.static(uploadsBase, { index: false, dotfiles: 'ignore' })
+);
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -59,7 +77,7 @@ app.use('/api/bookmarks', bookmarkRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/applicant', applicantRoutes);
 app.use('/api/company', companyRoutes);
-app.use('/api/admin', adminRoutes); // ✅ mount admin
+app.use('/api/admin', adminRoutes);
 
 // Root
 app.get('/', (_req, res) => {
@@ -198,71 +216,6 @@ const startServer = async () => {
 🌐 Server URL: http://localhost:${PORT}
 📡 Health Check: http://localhost:${PORT}/health
 📁 File Access: http://localhost:${PORT}/uploads/
-
-Available Endpoints:
-┌─────────────────────────────────────────┐
-│ 🔐 Authentication:                      │
-│ POST /api/auth/register/pelamar         │
-│ POST /api/auth/register/hr              │
-│ POST /api/auth/login                    │
-│ GET  /api/auth/profile                  │
-│ POST /api/auth/refresh                  │
-│ POST /api/auth/logout                   │
-│ POST /api/auth/change-password          │
-├─────────────────────────────────────────┤
-│ 👤 Profile Management (Pelamar):        │
-│ GET  /api/profile                       │
-│ PUT  /api/profile/biodata               │
-│ PUT  /api/profile/education             │
-│ POST /api/profile/work-experience       │
-│ PUT  /api/profile/work-experience/:id   │
-│ DEL  /api/profile/work-experience/:id   │
-│ POST /api/profile/certificate           │
-│ PUT  /api/profile/certificate/:id       │
-│ DEL  /api/profile/certificate/:id       │
-│ POST /api/profile/skill                 │
-│ PUT  /api/profile/skill/:id             │
-│ DEL  /api/profile/skill/:id             │
-│ POST /api/profile/upload-files          │
-│ POST /api/profile/upload-photo          │
-├─────────────────────────────────────────┤
-│ 🔖 Bookmark Management (Pelamar):       │
-│ GET  /api/bookmarks                     │
-│ POST /api/bookmarks                     │
-│ DEL  /api/bookmarks/:id                 │
-│ DEL  /api/bookmarks/job/:job_id         │
-│ GET  /api/bookmarks/check/:job_id       │
-│ GET  /api/bookmarks/stats               │
-│ GET  /api/bookmarks/search              │
-├─────────────────────────────────────────┤
-│ 💼 Jobs:                                │
-│ GET  /api/jobs                          │
-│ GET  /api/jobs/loker/summary            │
-│ GET  /api/jobs/details/:id              │
-│ GET  /api/jobs/:id                      │
-│ POST /api/jobs                          │
-│ PUT  /api/jobs/:id                      │
-│ DEL  /api/jobs/:id                      │
-│ PUT  /api/jobs/:id/verify               │
-├─────────────────────────────────────────┤
-│ 🧑 Applicant:                           │
-│ GET  /api/applicant                     │
-│ GET  /api/applicant/:id                 │
-│ POST /api/applicant                     │
-│ PUT  /api/applicant/:id/status          │
-│ DEL  /api/applicant/:id                 │
-├─────────────────────────────────────────┤
-│ 🏢 Company:                             │
-│ GET  /api/company                       │
-│ GET  /api/company/:id                   │
-│ POST /api/company                       │
-│ PUT  /api/company/:id                   │
-│ DEL  /api/company/:id                   │
-├─────────────────────────────────────────┤
-│ 👨‍💼 Admin:                              │
-│ GET  /api/admin/dashboard               │
-│ GET  /api/admin/logs                    │
-└─────────────────────────────────────────┘
       `);
     });
 

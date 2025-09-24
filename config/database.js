@@ -150,10 +150,10 @@ const initializeDatabase = async () => {
 };
 
 module.exports = {
-  pool,
-  db,
+  pool,  // boleh tetap diexport
+  db,  // ← ini yang dipakai controller
   testConnection,
-  initializeDatabase, // kalau kamu pisah; kalau tidak, ekspor yang ada
+  initializeDatabase,    // ← langsung fungsi lokal
   execute: db.execute,
   query: db.query,
 };

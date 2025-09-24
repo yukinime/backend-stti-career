@@ -1,65 +1,87 @@
 // controllers/adminController.js
-const { pool } = require('../config/database');
+const { db } = require('../config/database');
 
 /**
  * Get all users (with pagination, role filter, search)
  */
 const getAllUsers = async (req, res) => {
   try {
-    const { page = 1, limit = 10, role, search } = req.query;
+    let { page = 1, limit = 10, role, search, email, format, single } = req.query;
+
+    // Validasi angka
+    page = parseInt(page, 10);
+    limit = parseInt(limit, 10);
+    if (!Number.isFinite(page) || page < 1) page = 1;
+    if (!Number.isFinite(limit) || limit < 1) limit = 10;
+    if (limit > 100) limit = 100;
     const offset = (page - 1) * limit;
 
-    let query = `
-      SELECT id, full_name, email, role, company_name, position, 
-             address, phone, is_active, created_at 
-      FROM users WHERE 1=1
-    `;
-    let countQuery = 'SELECT COUNT(*) as total FROM users WHERE 1=1';
-    let params = [];
-    let countParams = [];
+    // Build WHERE + params terikat
+    let where = 'WHERE 1=1';
+    const params = [];
+    const countParams = [];
 
-    // Filter by role
     if (role && ['admin', 'hr', 'pelamar'].includes(role)) {
-      query += ' AND role = ?';
-      countQuery += ' AND role = ?';
+      where += ' AND role = ?';
       params.push(role);
       countParams.push(role);
     }
 
-    // Search by name or email
-    if (search) {
-      query += ' AND (full_name LIKE ? OR email LIKE ?)';
-      countQuery += ' AND (full_name LIKE ? OR email LIKE ?)';
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm);
-      countParams.push(searchTerm, searchTerm);
+    if (email) {
+      where += ' AND LOWER(email) = LOWER(?)';
+      params.push(email);
+      countParams.push(email);
     }
 
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    if (search) {
+      where += ' AND (full_name LIKE ? OR email LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s);
+      countParams.push(s, s);
+    }
 
-    const [users] = await pool.execute(query, params);
-    const [totalResult] = await pool.execute(countQuery, countParams);
-    const total = totalResult[0].total;
+    // LIMIT/OFFSET disisipkan sebagai angka (bukan placeholder) → aman karena sudah divalidasi
+    const listSql = `
+      SELECT id, full_name, email, role, company_name, company_address, position,
+             address, date_of_birth, phone, is_active, created_at, updated_at
+      FROM users
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM users
+      ${where}
+    `;
 
-    res.json({
+    const [usersRows] = await db.query(listSql, params);
+    const [countRows] = await db.query(countSql, countParams);
+    const total = countRows[0]?.total ?? 0;
+
+    // format single
+    if (format === 'single' || single === '1' || limit === 1) {
+      if (!usersRows.length) {
+        return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+      }
+      return res.json({ success: true, data: usersRows[0] });
+    }
+
+    return res.json({
       success: true,
       data: {
-        users,
+        users: usersRows,
         pagination: {
-          current_page: parseInt(page),
+          current_page: page,
           total_pages: Math.ceil(total / limit),
           total_items: total,
-          items_per_page: parseInt(limit)
+          items_per_page: limit
         }
       }
     });
   } catch (error) {
     console.error('Get all users error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
 
@@ -70,30 +92,22 @@ const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [users] = await pool.execute(
-      `SELECT id, full_name, email, role, company_name, company_address, position, 
-              address, date_of_birth, phone, is_active, created_at, updated_at 
-       FROM users WHERE id = ?`,
+    const [rows] = await db.query(
+      `SELECT id, full_name, email, role, company_name, company_address, position,
+              address, date_of_birth, phone, is_active, created_at, updated_at
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
       [id]
     );
 
-    if (users.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User tidak ditemukan'
-      });
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
     }
-
-    res.json({
-      success: true,
-      data: users[0]
-    });
+    return res.json({ success: true, data: rows[0] });
   } catch (error) {
     console.error('Get user by ID error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
 
@@ -105,57 +119,51 @@ const updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { is_active } = req.body;
 
-    // Check if user exists
-    const [users] = await pool.execute(
-      'SELECT id, full_name, email, role FROM users WHERE id = ?',
+    const [rows] = await db.query(
+      'SELECT id, full_name, email, role FROM users WHERE id = ? LIMIT 1',
       [id]
     );
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    }
+    const user = rows[0];
 
-    if (users.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User tidak ditemukan'
-      });
+    // Normalisasi boolean
+    const activeBool =
+      is_active === true ||
+      is_active === 1 ||
+      is_active === '1' ||
+      String(is_active).toLowerCase() === 'true';
+
+    // Cegah menonaktifkan akun sendiri
+    if (user.id === req.user.id && !activeBool) {
+      return res.status(400).json({ success: false, message: 'Tidak dapat menonaktifkan akun sendiri' });
     }
 
-    const user = users[0];
+    await db.query('UPDATE users SET is_active = ? WHERE id = ?', [activeBool ? 1 : 0, id]);
 
-    // Prevent admin from deactivating themselves
-    if (user.id === req.user.id && !is_active) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tidak dapat menonaktifkan akun sendiri'
-      });
-    }
+    // log admin (optional, abaikan gagal)
+    try {
+      await db.query(
+        `INSERT INTO admin_activity_logs (admin_id, action, target_type, target_id, note)
+         VALUES (?, ?, 'user', ?, NULL)`,
+        [req.user.id, activeBool ? 'activate_user' : 'deactivate_user', id]
+      );
+    } catch {}
 
-    // Update user status
-    await pool.execute(
-      'UPDATE users SET is_active = ? WHERE id = ?',
-      [is_active, id]
-    );
-
-    // Log action
-    await pool.execute(
-      'INSERT INTO admin_activity_logs (admin_id, action, target_type, target_id, note) VALUES (?, ?, ?, ?, ?)',
-      [req.user.id, is_active ? 'activate_user' : 'deactivate_user', 'user', id, null]
-    );
-
-    res.json({
+    return res.json({
       success: true,
-      message: `User ${is_active ? 'diaktifkan' : 'dinonaktifkan'} berhasil`,
+      message: `User ${activeBool ? 'diaktifkan' : 'dinonaktifkan'} berhasil`,
       data: {
         id: user.id,
         full_name: user.full_name,
         email: user.email,
-        is_active
+        is_active: activeBool
       }
     });
   } catch (error) {
     console.error('Update user status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
 
@@ -166,39 +174,31 @@ const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if user exists
-    const [users] = await pool.execute(
-      'SELECT id, full_name, email, role FROM users WHERE id = ?',
+    const [rows] = await db.query(
+      'SELECT id, full_name, email, role FROM users WHERE id = ? LIMIT 1',
       [id]
     );
-
-    if (users.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User tidak ditemukan'
-      });
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
     }
+    const user = rows[0];
 
-    const user = users[0];
-
-    // Prevent admin from deleting themselves
     if (user.id === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tidak dapat menghapus akun sendiri'
-      });
+      return res.status(400).json({ success: false, message: 'Tidak dapat menghapus akun sendiri' });
     }
 
-    // Delete user
-    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    await db.query('DELETE FROM users WHERE id = ?', [id]);
 
-    // Log action
-    await pool.execute(
-      'INSERT INTO admin_activity_logs (admin_id, action, target_type, target_id, note) VALUES (?, ?, ?, ?, ?)',
-      [req.user.id, 'delete_user', 'user', id, null]
-    );
+    // log admin (optional)
+    try {
+      await db.query(
+        `INSERT INTO admin_activity_logs (admin_id, action, target_type, target_id, note)
+         VALUES (?, 'delete_user', 'user', ?, NULL)`,
+        [req.user.id, id]
+      );
+    } catch {}
 
-    res.json({
+    return res.json({
       success: true,
       message: 'User berhasil dihapus',
       data: {
@@ -209,89 +209,91 @@ const deleteUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete user error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
+
 
 /**
  * Dashboard summary (users, companies, jobs, applications)
  */
-const getDashboardStats = async (req, res) => {
+const getDashboardStats = async (_req, res) => {
   try {
-    const [[users]] = await pool.execute(`
-      SELECT 
-        COUNT(*) as total_users,
-        SUM(CASE WHEN role = 'pelamar' THEN 1 ELSE 0 END) as total_pelamar,
-        SUM(CASE WHEN role = 'hr' THEN 1 ELSE 0 END) as total_hr,
-        SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as total_admin,
-        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_users,
-        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive_users
+    const [userAgg] = await db.query(`
+      SELECT
+        COUNT(*) AS total_users,
+        SUM(CASE WHEN role = 'pelamar' THEN 1 ELSE 0 END) AS total_pelamar,
+        SUM(CASE WHEN role = 'hr' THEN 1 ELSE 0 END)        AS total_hr,
+        SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END)     AS total_admin,
+        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END)      AS active_users,
+        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END)      AS inactive_users
       FROM users
     `);
+    const users = userAgg[0] || {
+      total_users: 0,
+      total_pelamar: 0,
+      total_hr: 0,
+      total_admin: 0,
+      active_users: 0,
+      inactive_users: 0
+    };
 
-    const [[companies]] = await pool.execute(`
-      SELECT COUNT(*) as total_companies,
-             SUM(CASE WHEN is_active=1 THEN 1 ELSE 0 END) as active_companies
+    const [companyAgg] = await db.query(`
+      SELECT
+        COUNT(*) AS total_companies,
+        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_companies
       FROM companies
     `);
+    const companies = companyAgg[0] || { total_companies: 0, active_companies: 0 };
 
-    const [jobs] = await pool.execute(`
-      SELECT verification_status, COUNT(*) as total
+    const [jobsAgg] = await db.query(`
+      SELECT verification_status, COUNT(*) AS total
       FROM job_posts
       GROUP BY verification_status
     `);
 
-    const [apps] = await pool.execute(`
-      SELECT status, COUNT(*) as total
+    const [appsAgg] = await db.query(`
+      SELECT status, COUNT(*) AS total
       FROM applications
       GROUP BY status
     `);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         users,
         companies,
-        jobs,
-        applications: apps
+        jobs: jobsAgg,
+        applications: appsAgg
       }
     });
   } catch (error) {
     console.error('Get dashboard stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
+
 
 /**
  * Get activity logs
  */
-const getActivityLogs = async (req, res) => {
+const getActivityLogs = async (_req, res) => {
   try {
-    const [rows] = await pool.execute(`
+    const [rows] = await db.query(`
       SELECT a.*, u.email AS admin_email
       FROM admin_activity_logs a
       JOIN users u ON a.admin_id = u.id
       ORDER BY a.created_at DESC
       LIMIT 100
     `);
-    res.json({
-      success: true,
-      data: rows
-    });
+    return res.json({ success: true, data: rows });
   } catch (error) {
     console.error('Get logs error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
   }
 };
+
+
 
 module.exports = {
   getAllUsers,
@@ -299,5 +301,5 @@ module.exports = {
   updateUserStatus,
   deleteUser,
   getDashboardStats,
-  getActivityLogs
+  getActivityLogs,
 };
