@@ -41,7 +41,7 @@ app.use((req, _res, next) => {
 });
 
 // ---- PUBLIC UPLOADS STATIC (Railway-friendly) ----
-const uploadsBase = path.resolve(__dirname, 'uploads');
+const uploadsBase = process.env.UPLOADS_DIR || path.resolve('/tmp/uploads');
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }

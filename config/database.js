@@ -1,6 +1,7 @@
 // config/database.js
 const mysql = require("mysql2/promise");
 const dns = require("dns");
+
 require("dotenv").config();
 
 try {
@@ -18,8 +19,13 @@ const useSSL = process.env.DB_SSL === "true" || process.env.MYSQL_SSL === "true"
 const ssl = useSSL ? { rejectUnauthorized: false } : undefined;
 
 const pool = mysql.createPool({
-  host,
-  port,
+  ...(useCloudSqlSocket
+    ? { socketPath: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}` } // Cloud Run → Cloud SQL
+    : {
+        host,
+        port,
+      } // lokal / non-CloudRun
+  ),
   user,
   password,
   database,
