@@ -1,6 +1,7 @@
 // config/database.js
 const mysql = require("mysql2/promise");
 const dns = require("dns");
+const useCloudSqlSocket = !!process.env.INSTANCE_CONNECTION_NAME;
 
 require("dotenv").config();
 
