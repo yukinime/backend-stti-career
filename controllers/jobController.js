@@ -1,31 +1,65 @@
 // controllers/jobController.js
 const { db } = require("../config/database");
 
+//UPDATE BARU
+// === Helper normalisasi & daftar nilai yang diizinkan ===
+const ALLOWED_WORK_TYPES = new Set(['on_site','remote','hybrid','field']); // field = Field Work/Mobile
+const ALLOWED_WORK_TIMES = new Set(['full_time','part_time','freelance','internship','contract','volunteer','seasonal']);
+
+const _norm = (v) => String(v || '').trim().toLowerCase();
+
+// Terima variasi input dari FE (WFO/On-site/Remote/WFH/Hybrid/Field/Mobile)
+const normalizeWorkType = (val) => {
+  const x = _norm(val);
+  if (['on_site','onsite','on-site','wfo','office'].includes(x)) return 'on_site';
+  if (['remote','wfh'].includes(x)) return 'remote';
+  if (['hybrid'].includes(x)) return 'hybrid';
+  if (['field','field_work','fieldwork','mobile','lapangan'].includes(x)) return 'field';
+  return null;
+};
+
+// Terima variasi Full-time/Part-time/Freelance/Internship/Contract/Volunteer/Seasonal
+const normalizeWorkTime = (val) => {
+  const x = _norm(val);
+  if (['full_time','fulltime','full-time'].includes(x)) return 'full_time';
+  if (['part_time','parttime','part-time'].includes(x)) return 'part_time';
+  if (['freelance','contractor'].includes(x)) return 'freelance';
+  if (['internship','magang'].includes(x)) return 'internship';
+  if (['contract','kontrak'].includes(x)) return 'contract';
+  if (['volunteer','relawan'].includes(x)) return 'volunteer';
+  if (['seasonal'].includes(x)) return 'seasonal';
+  return null;
+};
+
+// Pesan bantuan untuk FE kalau ngirim nilai salah
+const WORK_TYPE_HINT = "work_type harus salah satu dari: on_site(WFO), remote(WFH), hybrid, field(mobile)";
+const WORK_TIME_HINT = "work_time harus salah satu dari: full_time, part_time, freelance, internship, contract, volunteer, seasonal";
+//SELESAI UPDATE
+
 /* =========================
    Helpers: mapping payload
    ========================= */
 const mapJobPayloadToDb = (p = {}) => {
   const out = {};
 
-  // Terima kedua nama: job_title / title
+  // FE boleh kirim job_title/title -> simpan ke kolom DB: title
   if (p.job_title !== undefined || p.title !== undefined) {
     out.title = p.job_title ?? p.title;
   }
-  // Terima kedua nama: job_description / description
+  // FE boleh kirim job_description/description -> simpan ke kolom DB: description
   if (p.job_description !== undefined || p.description !== undefined) {
     out.description = p.job_description ?? p.description;
   }
 
-  // Flag aktif (normalkan ke 0/1)
   if (p.is_active !== undefined) out.is_active = p.is_active ? 1 : 0;
 
-  // Field opsional lain jika ada di schema DB kamu
   if (p.company_id !== undefined) out.company_id = p.company_id;
   if (p.category_id !== undefined) out.category_id = p.category_id;
   if (p.location !== undefined) out.location = p.location;
   if (p.salary_min !== undefined) out.salary_min = p.salary_min;
   if (p.salary_max !== undefined) out.salary_max = p.salary_max;
 
+  // biarkan work_type & work_time ditangani di create/update (wajib & normalisasi)
   return out;
 };
 
@@ -42,6 +76,9 @@ const mapDbRowToApi = (r = {}) => ({
   location: r.location ?? null,
   salary_min: r.salary_min ?? null,
   salary_max: r.salary_max ?? null,
+  // ⬇️ tambahkan 2 field baru agar FE dapat nilainya
+  work_type: r.work_type ?? null,
+  work_time: r.work_time ?? null,
 });
 
 /* =========================
@@ -115,17 +152,36 @@ exports.createJob = async (req, res) => {
   try {
     const payload = mapJobPayloadToDb(req.body);
 
-    if (!payload.title) {
+    // Ambil judul dari payload atau body; simpan ke kolom DB: title
+    const jobTitle = payload.title ?? req.body.job_title ?? req.body.title;
+    if (!jobTitle) {
       return res.status(400).json({
         success: false,
-        message: "Field job_title (atau title) wajib diisi",
+        message: 'Field job_title (atau title) wajib diisi',
       });
     }
+    payload.title = jobTitle;
 
-    const [result] = await db.query("INSERT INTO job_posts SET ?", [payload]);
+    // --- WAJIB: work_type & work_time ---
+    const rawWorkType = req.body.work_type ?? req.body.workType;
+    const rawWorkTime = req.body.work_time ?? req.body.workTime;
 
-    // kembalikan bentuk FE-friendly
-    res.status(201).json({
+    const work_type = normalizeWorkType(rawWorkType);
+    const work_time = normalizeWorkTime(rawWorkTime);
+
+    if (!work_type) {
+      return res.status(400).json({ success: false, message: WORK_TYPE_HINT });
+    }
+    if (!work_time) {
+      return res.status(400).json({ success: false, message: WORK_TIME_HINT });
+    }
+
+    payload.work_type = work_type;
+    payload.work_time = work_time;
+
+    const [result] = await db.query('INSERT INTO job_posts SET ?', [payload]);
+
+    return res.status(201).json({
       success: true,
       data: {
         id: result.insertId,
@@ -133,8 +189,8 @@ exports.createJob = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Create job error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error('Create job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -145,30 +201,59 @@ exports.updateJob = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Ambil daftar kolom yang benar2 ada di DB
     const [cols] = await db.query(
       `SELECT COLUMN_NAME AS c
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'job_posts'`
     );
-    const existingCols = new Set(cols.map((r) => r.c));
+    const existingCols = new Set(cols.map(r => r.c));
 
-    // Daftar field yang memang kita izinkan untuk diupdate
+    // gunakan nama kolom DB yang sebenarnya
     const allowList = [
-      "job_title",
-      "job_description",
-      "is_active",
-      "verification_status",
-      "company_id",
-      "category_id",
-      "location",
-      "salary_min",
-      "salary_max",
+      'title',
+      'description',
+      'is_active',
+      'verification_status',
+      'company_id',
+      'category_id',
+      'location',
+      'salary_min',
+      'salary_max',
+      'work_type',
+      'work_time'
     ];
 
-    // Intersect: hanya field yang (diizinkan) dan (ada di DB)
+    // Terima alias dari FE dan normalisasi
+    const raw = { ...req.body };
+
+    // job_title -> title
+    if (raw.job_title !== undefined && raw.title === undefined) {
+      raw.title = raw.job_title;
+      delete raw.job_title;
+    }
+    // job_description -> description
+    if (raw.job_description !== undefined && raw.description === undefined) {
+      raw.description = raw.job_description;
+      delete raw.job_description;
+    }
+
+    // Normalisasi work_type / work_time bila dikirim
+    if (raw.work_type !== undefined || raw.workType !== undefined) {
+      const wt = normalizeWorkType(raw.work_type ?? raw.workType);
+      if (!wt) return res.status(400).json({ success: false, message: WORK_TYPE_HINT });
+      raw.work_type = wt;
+      delete raw.workType;
+    }
+    if (raw.work_time !== undefined || raw.workTime !== undefined) {
+      const wtm = normalizeWorkTime(raw.work_time ?? raw.workTime);
+      if (!wtm) return res.status(400).json({ success: false, message: WORK_TIME_HINT });
+      raw.work_time = wtm;
+      delete raw.workTime;
+    }
+
+    // Intersect: hanya field yang (diizinkan) & (ada di DB)
     const payload = {};
-    for (const [k, v] of Object.entries(req.body || {})) {
+    for (const [k, v] of Object.entries(raw)) {
       if (allowList.includes(k) && existingCols.has(k)) {
         payload[k] = v;
       }
@@ -177,18 +262,17 @@ exports.updateJob = async (req, res) => {
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Tidak ada field yang valid untuk diupdate",
+        message: 'Tidak ada field yang valid untuk diupdate',
       });
     }
 
-    await db.query("UPDATE job_posts SET ? WHERE id = ?", [payload, id]);
-    return res.json({ success: true, message: "Job updated", id });
+    await db.query('UPDATE job_posts SET ? WHERE id = ?', [payload, id]);
+    return res.json({ success: true, message: 'Job updated', id });
   } catch (err) {
-    console.error("Update job error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error('Update job error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
 /* =========================
    DELETE: hapus job
    ========================= */
