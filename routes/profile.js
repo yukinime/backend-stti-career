@@ -136,6 +136,7 @@ const ensureHrProfileExists = async (userId) => {
   }
 };
 
+
 /* ------------------------------------------------------------------
    💡 Tambahan helper: columnExists + getter/setter foto per role
 ------------------------------------------------------------------- */
