@@ -64,6 +64,19 @@ const acceptPhotoFields = upload.fields([
   { name: 'image',         maxCount: 1 },
   { name: 'avatar',        maxCount: 1 },
 ]);
+// izinkan multiple role
+const allowRoles = (...roles) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'User tidak terautentikasi' });
+  }
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({
+      success: false,
+      message: `Akses ditolak. Role yang diizinkan: ${roles.join(', ')}`
+    });
+  }
+  next();
+};
 
 /* ===========================
    Helper: pastikan profil pelamar
@@ -94,6 +107,31 @@ const ensurePelamarProfileExists = async (userId) => {
     return true;
   } catch (e) {
     console.error('Error ensuring pelamar profile exists:', e);
+    return false;
+  }
+};
+// Helper: pastikan profil HR ada
+const ensureHrProfileExists = async (userId) => {
+  try {
+    const [existing] = await pool.execute(
+      'SELECT id FROM hr_profiles WHERE user_id = ?',
+      [userId]
+    );
+    if (existing.length === 0) {
+      const [[u]] = await pool.execute(
+        'SELECT company_name, company_address, position FROM users WHERE id = ?',
+        [userId]
+      );
+      await pool.execute(
+        `INSERT INTO hr_profiles (user_id, company_name, company_address, position)
+         VALUES (?, ?, ?, ?)`,
+        [userId, u?.company_name || null, u?.company_address || null, u?.position || null]
+      );
+      console.log(`✅ Created HR profile for user ID: ${userId}`);
+    }
+    return true;
+  } catch (e) {
+    console.error('Error ensuring HR profile exists:', e);
     return false;
   }
 };
@@ -598,16 +636,18 @@ router.post(
 
 /* ===========================
    POST /api/profile/upload-photo
-   (PELAMAR – EXISTING)
+   (pelamar, hr, admin)
    =========================== */
 router.post(
   '/upload-photo',
   authenticateToken,
-  requireRole('pelamar'),
-  acceptPhotoFields, // ← TERIMA profile_photo | photo | image | avatar
+  allowRoles('pelamar', 'hr', 'admin'),
+  acceptPhotoFields, // menerima: profile_photo | photo | image | avatar
   async (req, res) => {
     try {
       const userId = req.user.id;
+      const role = req.user.role;
+
       const f =
         (req.files?.profile_photo?.[0]) ||
         (req.files?.photo?.[0]) ||
@@ -621,29 +661,49 @@ router.post(
         });
       }
 
-      await ensurePelamarProfileExists(userId);
+      // Tentukan tabel & kolom target berdasarkan role
+      let selectSql = '';
+      let updateSql = '';
+      let ensureFn = async () => true; // default no-op
 
-      // hapus foto lama
-      const [old] = await pool.execute(
-        'SELECT profile_photo FROM pelamar_profiles WHERE user_id=?',
-        [userId]
-      );
-      const oldName = old[0]?.profile_photo;
-      if (oldName) {
-        const oldPath = path.join(process.cwd(), 'uploads', 'images', oldName);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      if (role === 'pelamar') {
+        await ensurePelamarProfileExists(userId);
+        selectSql = 'SELECT profile_photo FROM pelamar_profiles WHERE user_id=?';
+        updateSql = 'UPDATE pelamar_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?';
+      } else if (role === 'hr') {
+        await ensureHrProfileExists(userId);
+        selectSql = 'SELECT profile_photo FROM hr_profiles WHERE user_id=?';
+        updateSql = 'UPDATE hr_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?';
+      } else {
+        // admin (atau role lain) → simpan di kolom users.profile_photo
+        selectSql = 'SELECT profile_photo FROM users WHERE id=?';
+        updateSql = 'UPDATE users SET profile_photo=?, updated_at=NOW() WHERE id=?';
       }
 
-      await pool.execute(
-        'UPDATE pelamar_profiles SET profile_photo=?, updated_at=NOW() WHERE user_id=?',
-        [f.filename, userId]
-      );
+      // Hapus foto lama (jika ada)
+      const [oldRows] = await pool.execute(selectSql, [userId]);
+      const oldName =
+        oldRows?.[0]?.profile_photo &&
+        String(oldRows[0].profile_photo).trim().length > 0
+          ? oldRows[0].profile_photo
+          : null;
+
+      if (oldName) {
+        const oldPath = path.join(process.cwd(), 'uploads', 'images', oldName);
+        if (fs.existsSync(oldPath)) {
+          try { fs.unlinkSync(oldPath); } catch (_) { /* ignore */ }
+        }
+      }
+
+      // Simpan nama file baru
+      await pool.execute(updateSql, [f.filename, userId]);
 
       return res.json({
         success: true,
         message: 'Foto profil berhasil diupload',
         filename: f.filename,
-        url: buildUploadUrl(req, 'images', f.filename)
+        url: buildUploadUrl(req, 'images', f.filename),
+        role
       });
     } catch (error) {
       console.error('❌ Error uploading profile photo:', error);
