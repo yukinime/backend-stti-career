@@ -2,6 +2,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { pool } = require("../config/database");
+const { buildUploadUrl } = require('../utils/url');
 
 // ===== Helpers =====
 const generateToken = (user) => {
@@ -247,15 +248,11 @@ const registerHR = async (req, res) => {
 // ===== Login =====
 const login = async (req, res) => {
   try {
-    const cleanEmail = String(req.body.email || "")
-      .trim()
-      .toLowerCase();
+    const cleanEmail = String(req.body.email || "").trim().toLowerCase();
     const password = req.body.password;
 
     if (!cleanEmail || !password) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Email dan password wajib diisi" });
+      return res.status(400).json({ success: false, message: "Email dan password wajib diisi" });
     }
 
     const [rows] = await pool.execute(
@@ -266,29 +263,87 @@ const login = async (req, res) => {
       [cleanEmail]
     );
     if (!rows.length) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Email atau password salah" });
+      return res.status(401).json({ success: false, message: "Email atau password salah" });
     }
 
     const user = rows[0];
     if (!user.is_active) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Akun Anda dinonaktifkan" });
+      return res.status(403).json({ success: false, message: "Akun Anda dinonaktifkan" });
     }
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Email atau password salah" });
+      return res.status(401).json({ success: false, message: "Email atau password salah" });
     }
 
     const tokens = generateToken(user);
-    refreshTokens.push(tokens.refreshToken);
 
+    // buang password dari payload
     const { password: _, ...userWithoutPassword } = user;
+
+    // ==== Tambahan: sematkan profile_photo_url (dan file URL utk pelamar) ====
+    try {
+      if (user.role === 'pelamar') {
+        const [[p]] = await pool.execute(
+          `SELECT profile_photo, cv_file, cover_letter_file, portfolio_file
+             FROM pelamar_profiles WHERE user_id = ?`,
+          [user.id]
+        );
+        if (p) {
+          userWithoutPassword.profile = {
+            ...(userWithoutPassword.profile || {}),
+            ...p,
+            profile_photo_url: p.profile_photo ? buildUploadUrl(req, 'images', p.profile_photo) : null,
+            cv_file_url: p.cv_file ? buildUploadUrl(req, 'files', p.cv_file) : null,
+            cover_letter_file_url: p.cover_letter_file ? buildUploadUrl(req, 'files', p.cover_letter_file) : null,
+            portfolio_file_url: p.portfolio_file ? buildUploadUrl(req, 'files', p.portfolio_file) : null
+          };
+          // juga taruh di level atas kalau FE membutuhkannya
+          userWithoutPassword.profile_photo_url = userWithoutPassword.profile.profile_photo_url;
+        }
+      } else if (user.role === 'hr') {
+        // ambil dari hr_profiles jika ada; fallback ke kolom users.profile_photo bila diperlukan
+        let photo = null;
+        try {
+          const [[h]] = await pool.execute(
+            `SELECT profile_photo FROM hr_profiles WHERE user_id = ?`,
+            [user.id]
+          );
+          photo = h?.profile_photo || null;
+        } catch (_) {}
+        if (!photo) {
+          try {
+            const [[u2]] = await pool.execute(
+              `SELECT profile_photo FROM users WHERE id = ?`,
+              [user.id]
+            );
+            photo = u2?.profile_photo || null;
+          } catch (_) {}
+        }
+        userWithoutPassword.profile = {
+          ...(userWithoutPassword.profile || {}),
+          profile_photo: photo
+        };
+        userWithoutPassword.profile_photo_url = photo ? buildUploadUrl(req, 'images', photo) : null;
+      } else {
+        // admin/role lain → cek kolom users.profile_photo
+        try {
+          const [[u2]] = await pool.execute(
+            `SELECT profile_photo FROM users WHERE id = ?`,
+            [user.id]
+          );
+          const photo = u2?.profile_photo || null;
+          userWithoutPassword.profile = {
+            ...(userWithoutPassword.profile || {}),
+            profile_photo: photo
+          };
+          userWithoutPassword.profile_photo_url = photo ? buildUploadUrl(req, 'images', photo) : null;
+        } catch (_) {}
+      }
+    } catch (_) {
+      // jangan gagalkan login hanya karena gagal ambil foto
+    }
+
     return res.json({
       success: true,
       message: "Login berhasil",
@@ -296,9 +351,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error("Login error:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server" });
+    return res.status(500).json({ success: false, message: "Terjadi kesalahan server" });
   }
 };
 
@@ -387,9 +440,15 @@ const getProfile = async (req, res) => {
       [userId]
     );
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User tidak ditemukan" });
+      return res.status(404).json({ success: false, message: "User tidak ditemukan" });
+    }
+
+    // Default: tambahkan profile_photo_url dari users.profile_photo bila ada
+    try {
+      const [[u2]] = await pool.execute(`SELECT profile_photo FROM users WHERE id = ?`, [userId]);
+      user.profile_photo_url = u2?.profile_photo ? buildUploadUrl(req, 'images', u2.profile_photo) : null;
+    } catch (_) {
+      user.profile_photo_url = null;
     }
 
     if (user.role === "pelamar") {
@@ -400,24 +459,43 @@ const getProfile = async (req, res) => {
          FROM pelamar_profiles WHERE user_id = ?`,
         [userId]
       );
-      user.profile = p || {};
+      const prof = p || {};
+      user.profile = {
+        ...prof,
+        profile_photo_url: prof.profile_photo ? buildUploadUrl(req, 'images', prof.profile_photo) : null,
+        cv_file_url: prof.cv_file ? buildUploadUrl(req, 'files', prof.cv_file) : null,
+        cover_letter_file_url: prof.cover_letter_file ? buildUploadUrl(req, 'files', prof.cover_letter_file) : null,
+        portfolio_file_url: prof.portfolio_file ? buildUploadUrl(req, 'files', prof.portfolio_file) : null
+      };
+      // sinkronkan ke level atas juga (opsional, bantu FE)
+      user.profile_photo_url = user.profile.profile_photo_url;
     }
 
     if (user.role === "hr") {
-      const [[p]] = await pool.execute(
-        `SELECT department, employee_count, company_description
-         FROM hr_profiles WHERE user_id = ?`,
-        [userId]
-      );
-      user.profile = p || {};
+      try {
+        const [[h]] = await pool.execute(
+          `SELECT department, employee_count, company_description, profile_photo
+           FROM hr_profiles WHERE user_id = ?`,
+          [userId]
+        );
+        const prof = h || {};
+        user.profile = {
+          department: prof.department || null,
+          employee_count: prof.employee_count || null,
+          company_description: prof.company_description || null,
+          profile_photo: prof.profile_photo || null,
+          profile_photo_url: prof.profile_photo ? buildUploadUrl(req, 'images', prof.profile_photo) : null
+        };
+        user.profile_photo_url = user.profile.profile_photo_url ?? user.profile_photo_url;
+      } catch (_) {
+        // kalau kolom/profile HR belum ada, biarkan kosong
+      }
     }
 
     return res.json({ success: true, data: user });
   } catch (error) {
     console.error("Get profile error:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server" });
+    return res.status(500).json({ success: false, message: "Terjadi kesalahan server" });
   }
 };
 
