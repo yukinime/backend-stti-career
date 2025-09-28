@@ -42,16 +42,43 @@ const WORK_TIME_HINT = "work_time harus salah satu dari: full_time, part_time, f
 /* =========================
    Helpers: mapping payload
    ========================= */
+const getAliasValue = (source = {}, aliases = []) => {
+  for (const key of aliases) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      return source[key];
+    }
+  }
+  return undefined;
+};
+
 const mapJobPayloadToDb = (p = {}) => {
   const out = {};
 
   // FE boleh kirim job_title/title -> simpan ke kolom DB: title
-  if (p.job_title !== undefined || p.title !== undefined) {
-    out.title = p.job_title ?? p.title;
+  const titleVal = getAliasValue(p, ["title", "job_title"]);
+  if (titleVal !== undefined) {
+    out.title = titleVal;
   }
   // FE boleh kirim job_description/description -> simpan ke kolom DB: description
-  if (p.job_description !== undefined || p.description !== undefined) {
-    out.description = p.job_description ?? p.description;
+  const descriptionVal = getAliasValue(p, ["description", "job_description"]);
+  if (descriptionVal !== undefined) {
+    out.description = descriptionVal;
+  }
+
+  const requirementsVal = getAliasValue(p, [
+    "requirements",
+    "requirement",
+    "job_requirements",
+    "jobRequirements",
+    "jobRequirement",
+  ]);
+  if (requirementsVal !== undefined) {
+    out.requirements = requirementsVal;
+  }
+
+  const salaryRangeVal = getAliasValue(p, ["salary_range", "salaryRange"]);
+  if (salaryRangeVal !== undefined) {
+    out.salary_range = salaryRangeVal;
   }
 
   if (p.is_active !== undefined) out.is_active = p.is_active ? 1 : 0;
@@ -70,6 +97,7 @@ const mapDbRowToApi = (r = {}) => ({
   id: r.id,
   job_title: r.title ?? null,
   job_description: r.description ?? null,
+  requirements: r.requirements ?? null,
   is_active: r.is_active ?? 0,
   verification_status: r.verification_status ?? "pending",
   created_at: r.created_at,
@@ -79,6 +107,7 @@ const mapDbRowToApi = (r = {}) => ({
   location: r.location ?? null,
   salary_min: r.salary_min ?? null,
   salary_max: r.salary_max ?? null,
+  salary_range: r.salary_range ?? null,
   // ⬇️ tambahkan 2 field baru agar FE dapat nilainya
   work_type: r.work_type ?? null,
   work_time: r.work_time ?? null,
@@ -243,7 +272,21 @@ exports.updateJob = async (req, res) => {
     const existingCols = new Set(cols.map((r) => r.c));
 
     // gunakan nama kolom DB yang sebenarnya
-    const allowList = ["title", "description", "is_active", "verification_status", "company_id", "category_id", "location", "salary_min", "salary_max", "work_type", "work_time"];
+    const allowList = [
+      "title",
+      "description",
+      "requirements",
+      "is_active",
+      "verification_status",
+      "company_id",
+      "category_id",
+      "location",
+      "salary_min",
+      "salary_max",
+      "salary_range",
+      "work_type",
+      "work_time",
+    ];
 
     // Terima alias dari FE dan normalisasi
     const raw = { ...req.body };
@@ -257,6 +300,27 @@ exports.updateJob = async (req, res) => {
     if (raw.job_description !== undefined && raw.description === undefined) {
       raw.description = raw.job_description;
       delete raw.job_description;
+    }
+
+    const reqVal = getAliasValue(raw, [
+      "requirements",
+      "requirement",
+      "job_requirements",
+      "jobRequirements",
+      "jobRequirement",
+    ]);
+    if (reqVal !== undefined) {
+      raw.requirements = reqVal;
+      delete raw.requirement;
+      delete raw.job_requirements;
+      delete raw.jobRequirements;
+      delete raw.jobRequirement;
+    }
+
+    const salaryRangeVal = getAliasValue(raw, ["salary_range", "salaryRange"]);
+    if (salaryRangeVal !== undefined) {
+      raw.salary_range = salaryRangeVal;
+      delete raw.salaryRange;
     }
 
     // Normalisasi work_type / work_time bila dikirim
