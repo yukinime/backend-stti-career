@@ -598,6 +598,24 @@
           }
         },
         {
+          "name": "List publik (lang=en)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs?lang=en"
+          },
+          "description": "Gunakan query `lang=en` untuk memaksa terjemahan Inggris pada judul/deskripsi job. Field `translations.en` akan terisi."
+        },
+        {
+          "name": "List publik (lang=all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/jobs?lang=all"
+          },
+          "description": "Mengembalikan bahasa asli + objek `translations` berisi semua bahasa yang tersedia (mis. `id`, `en`)."
+        },
+        {
           "name": "Summary publik",
           "request": {
             "method": "GET",
