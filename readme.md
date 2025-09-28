@@ -44,6 +44,8 @@ cp .env.example .env
 # GOOGLE_TRANSLATE_PROJECT_ID=<project-id-google-cloud>
 # GOOGLE_TRANSLATE_LOCATION=global   # atau lokasi region yang kamu pakai
 # GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/ke/google-translate-key.json
+# atau isi `GOOGLE_APPLICATION_CREDENTIALS_JSON` dengan isi file JSON-nya langsung
+# (ingat untuk escape newline menjadi `\n` bila ditaruh di satu baris).
 #
 # Simpan file kredensial Google Cloud (JSON) **di luar repository** agar tidak
 # ikut ter-commit. Contoh aman di lokal: `~/secrets/stti-google-key.json`, lalu
