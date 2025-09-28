@@ -41,6 +41,13 @@ cp .env.example .env
 # PORT=5000
 # JWT_SECRET=ganti-ini-dengan-string-acak-panjang
 # JWT_EXPIRES_IN=1h
+# GOOGLE_TRANSLATE_PROJECT_ID=<project-id-google-cloud>
+# GOOGLE_TRANSLATE_LOCATION=global   # atau lokasi region yang kamu pakai
+# GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/ke/google-translate-key.json
+#
+# Simpan file kredensial Google Cloud (JSON) **di luar repository** agar tidak
+# ikut ter-commit. Contoh aman di lokal: `~/secrets/stti-google-key.json`, lalu
+# arahkan `GOOGLE_APPLICATION_CREDENTIALS` ke path tersebut.
 
 # 3) Start server
 npm run start

@@ -82,6 +82,34 @@ Respon singkat:
 
 **Public**
 - **GET** `/` → list lowongan (urutan terbaru).
+  - Query opsional `lang`:
+    - `lang=id` (default) → kirim teks asli dari database (umumnya Bahasa Indonesia).
+    - `lang=en` → paksa judul & deskripsi diterjemahkan ke Inggris. Respons juga menambahkan objek `translations`.
+    - `lang=all` → kirim teks asli + seluruh hasil terjemahan yang tersedia (`translations.id`, `translations.en`, dst.).
+  - Contoh respons `lang=all`:
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": 101,
+          "job_title": "Backend Engineer",
+          "job_description": "Bangun API dengan Node.js",
+          "translations": {
+            "id": {
+              "job_title": "Backend Engineer",
+              "job_description": "Bangun API dengan Node.js"
+            },
+            "en": {
+              "job_title": "Backend Engineer",
+              "job_description": "Build APIs with Node.js"
+            }
+          }
+        }
+      ]
+    }
+    ```
+- Catatan fallback: bila layanan Google Translate gagal/timeout, API tetap mengembalikan teks asli (tanpa mengosongkan field) dan `translations` hanya berisi bahasa yang berhasil (atau di-skip sama sekali). QA bisa mengecek log server untuk detail error.
 - **GET** `/loker/summary` → kolom ringkas: `id`, `job_title`, `is_active`, `verification_status`, `created_at`.
 - **GET** `/details/:id` → detail + `total_applications` + `selection_stages` (jika ada).
 - **GET** `/:id` → detail 1 lowongan.
