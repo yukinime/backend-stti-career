@@ -1,8 +1,12 @@
 const { db } = require("../config/database");
+const {
+  getCachedTranslation,
+  getTranslationWithFallback,
+  saveTranslation,
+} = require("../utils/translationCache");
+const { translateFields } = require("./googleTranslateClient");
 
-const jobTranslationCache = new Map();
-
-const buildJobKey = (jobId, lang) => `job:${jobId}:${lang}`;
+const DEFAULT_SOURCE_LANG = "id";
 
 const normalizeJobSource = (source = {}) => ({
   job_title: source.job_title ?? source.title ?? null,
@@ -21,20 +25,8 @@ const mergeJobSource = (primary = {}, fallback = {}) => {
   return output;
 };
 
-const duplicateTranslation = (base = {}, lang) => {
-  if (!base) return null;
-  const suffix = lang ? ` (${lang.toUpperCase()})` : "";
-  const translated = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (typeof value === "string" && value.trim()) {
-      translated[key] = `${value}${suffix}`;
-    } else {
-      translated[key] = value ?? null;
-    }
-  }
-  translated.lang = lang;
-  return translated;
-};
+const hasTranslatableContent = (payload = {}) =>
+  Object.values(payload).some((value) => typeof value === "string" && value.trim());
 
 const fetchJobBaseData = async (jobId) => {
   const [rows] = await db.query(
@@ -45,44 +37,131 @@ const fetchJobBaseData = async (jobId) => {
   return normalizeJobSource(rows[0]);
 };
 
-const warmJobTranslation = async (jobId, lang, baseData) => {
-  if (!lang || lang === "id") return null;
-  const key = buildJobKey(jobId, lang);
+const mapTranslationForResponse = (translation, lang) => {
+  if (!translation) return null;
+  const payload = { ...translation };
+  payload.lang = lang;
+  return payload;
+};
 
-  let source = baseData;
-  if (!source) {
-    source = await fetchJobBaseData(jobId);
+const getAllCachedTranslations = async (jobId) => {
+  const [rows] = await db.query(
+    `SELECT language_code FROM job_post_translations WHERE job_id = ?`,
+    [jobId]
+  );
+
+  if (!rows.length) {
+    return {};
   }
-  if (!source) return null;
 
-  const translation = duplicateTranslation(source, lang);
-  jobTranslationCache.set(key, translation);
-  return translation;
+  const translations = {};
+  await Promise.all(
+    rows.map(async ({ language_code: languageCode }) => {
+      const cached = await getCachedTranslation(jobId, languageCode);
+      if (cached) {
+        translations[languageCode] = mapTranslationForResponse(
+          cached,
+          languageCode
+        );
+      }
+    })
+  );
+
+  return translations;
+};
+
+const translateJobFields = async (lang, base) => {
+  if (!base || !lang || lang === DEFAULT_SOURCE_LANG) {
+    return null;
+  }
+
+  const translated = await translateFields(base, lang, {
+    sourceLanguageCode: DEFAULT_SOURCE_LANG,
+  });
+
+  if (!translated) {
+    return null;
+  }
+
+  return {
+    job_title: translated.job_title ?? null,
+    job_description: translated.job_description ?? null,
+    requirements: translated.requirements ?? null,
+    lang,
+  };
+};
+
+const getJobTranslation = async (jobId, lang) => {
+  if (!lang || lang === DEFAULT_SOURCE_LANG) {
+    return null;
+  }
+
+  if (lang === "all") {
+    const base = await fetchJobBaseData(jobId);
+    const translations = await getAllCachedTranslations(jobId);
+    if (base) {
+      translations[DEFAULT_SOURCE_LANG] = {
+        ...base,
+        lang: DEFAULT_SOURCE_LANG,
+      };
+    }
+    return Object.keys(translations).length ? translations : null;
+  }
+
+  const fetchFn = async () => {
+    const base = await fetchJobBaseData(jobId);
+    if (!base || !hasTranslatableContent(base)) {
+      return null;
+    }
+
+    const payload = await translateJobFields(lang, base);
+    if (!payload) {
+      return null;
+    }
+
+    return payload;
+  };
+
+  const translation = await getTranslationWithFallback(jobId, lang, fetchFn);
+  if (!translation) {
+    return null;
+  }
+
+  return { [lang]: mapTranslationForResponse(translation, lang) };
 };
 
 const refreshJobTranslations = async (jobId, langs = [], baseData = null) => {
   const targets = (Array.isArray(langs) ? langs : []).filter(
-    (lang) => lang && lang !== "id"
+    (target) => target && target !== DEFAULT_SOURCE_LANG
   );
 
-  if (!targets.length) return;
+  if (!targets.length) {
+    return;
+  }
 
   const normalizedBase = baseData ? normalizeJobSource(baseData) : null;
   const dbSource = await fetchJobBaseData(jobId);
   const source = mergeJobSource(normalizedBase, dbSource || {});
 
-  if (!Object.keys(source).length) return;
-
-  await Promise.all(targets.map((lang) => warmJobTranslation(jobId, lang, source)));
-};
-
-const getJobTranslation = async (jobId, lang) => {
-  if (!lang || lang === "id") return null;
-  const key = buildJobKey(jobId, lang);
-  if (jobTranslationCache.has(key)) {
-    return jobTranslationCache.get(key);
+  if (!source || !hasTranslatableContent(source)) {
+    return;
   }
-  return warmJobTranslation(jobId, lang);
+
+  await Promise.all(
+    targets.map(async (lang) => {
+      try {
+        const payload = await translateJobFields(lang, source);
+        if (payload) {
+          await saveTranslation(jobId, lang, payload);
+        }
+      } catch (err) {
+        console.error(
+          `Job translation refresh error for job ${jobId} (${lang}):`,
+          err
+        );
+      }
+    })
+  );
 };
 
 module.exports = {

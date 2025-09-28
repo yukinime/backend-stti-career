@@ -119,6 +119,9 @@ const mapDbRowToApi = (r = {}) => ({
 });
 const validateLangParam = (lang) => {
   if (!lang) return { lang: "id", isDefault: true };
+  if (lang === "all") {
+    return { lang: "all", isDefault: false };
+  }
   if (!SUPPORTED_LANGS.includes(lang)) {
     const supported = SUPPORTED_LANGS.join(", ");
     const error = new Error(`Invalid lang parameter. Supported languages: ${supported}`);
