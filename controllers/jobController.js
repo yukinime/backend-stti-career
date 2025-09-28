@@ -1,5 +1,8 @@
 // controllers/jobController.js
 const { db } = require("../config/database");
+const translationService = require("../services/translationService");
+
+const SUPPORTED_LANGS = ["id", "en", "ja"];
 
 //UPDATE BARU
 // === Helper normalisasi & daftar nilai yang diizinkan ===
@@ -114,13 +117,34 @@ const mapDbRowToApi = (r = {}) => ({
 
   total_applicants: r.total_applicants ?? 0,
 });
+const validateLangParam = (lang) => {
+  if (!lang) return { lang: "id", isDefault: true };
+  if (!SUPPORTED_LANGS.includes(lang)) {
+    const supported = SUPPORTED_LANGS.join(", ");
+    const error = new Error(`Invalid lang parameter. Supported languages: ${supported}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return { lang, isDefault: lang === "id" };
+};
+
 exports.getAllJobs = async (req, res) => {
   try {
-    const { hrId } = req.query;
+    const { hrId, lang: queryLang } = req.query;
+
+    let langInfo;
+    try {
+      langInfo = validateLangParam(queryLang);
+    } catch (validationErr) {
+      const statusCode = validationErr.statusCode || 400;
+      return res
+        .status(statusCode)
+        .json({ success: false, message: validationErr.message });
+    }
 
     let sql = `
-      SELECT 
-        jp.*, 
+      SELECT
+        jp.*,
         COUNT(a.id) AS total_applicants
       FROM job_posts jp
       LEFT JOIN applications a ON a.job_id = jp.id
@@ -141,9 +165,29 @@ exports.getAllJobs = async (req, res) => {
 
     const [rows] = await db.query(sql, values);
 
+    const jobs = rows.map(mapDbRowToApi);
+
+    if (!langInfo.isDefault) {
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            const translations = await translationService.getJobTranslation(
+              job.id,
+              langInfo.lang
+            );
+            if (translations) {
+              job.translations = translations;
+            }
+          } catch (translationErr) {
+            console.error("Job translation fetch error:", translationErr);
+          }
+        })
+      );
+    }
+
     res.json({
       success: true,
-      data: rows.map(mapDbRowToApi),
+      data: jobs,
     });
   } catch (err) {
     console.error("Database query error:", err);
@@ -189,12 +233,40 @@ exports.getJobSummary = async (req, res) => {
 exports.getJobById = async (req, res) => {
   try {
     const { id } = req.params;
+    const { lang: queryLang } = req.query;
+
+    let langInfo;
+    try {
+      langInfo = validateLangParam(queryLang);
+    } catch (validationErr) {
+      const statusCode = validationErr.statusCode || 400;
+      return res
+        .status(statusCode)
+        .json({ success: false, message: validationErr.message });
+    }
+
     const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ?", [id]);
 
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
-    res.json({ success: true, data: mapDbRowToApi(rows[0]) });
+    const jobData = mapDbRowToApi(rows[0]);
+
+    if (!langInfo.isDefault) {
+      try {
+        const translations = await translationService.getJobTranslation(
+          jobData.id,
+          langInfo.lang
+        );
+        if (translations) {
+          jobData.translations = translations;
+        }
+      } catch (translationErr) {
+        console.error("Job translation fetch error:", translationErr);
+      }
+    }
+
+    res.json({ success: true, data: jobData });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -243,6 +315,16 @@ exports.createJob = async (req, res) => {
     payload.hr_id = hrId;
 
     const [result] = await db.query("INSERT INTO job_posts SET ?", [payload]);
+
+    try {
+      await translationService.refreshJobTranslations(
+        result.insertId,
+        SUPPORTED_LANGS.filter((lang) => lang !== "id"),
+        payload
+      );
+    } catch (translationErr) {
+      console.error("Job translation cache warm error:", translationErr);
+    }
 
     return res.status(201).json({
       success: true,
@@ -353,6 +435,17 @@ exports.updateJob = async (req, res) => {
     }
 
     await db.query("UPDATE job_posts SET ? WHERE id = ?", [payload, id]);
+
+    try {
+      await translationService.refreshJobTranslations(
+        id,
+        SUPPORTED_LANGS.filter((lang) => lang !== "id"),
+        payload
+      );
+    } catch (translationErr) {
+      console.error("Job translation cache warm error:", translationErr);
+    }
+
     return res.json({ success: true, message: "Job updated", id });
   } catch (err) {
     console.error("Update job error:", err);
@@ -413,6 +506,18 @@ exports.getJobDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const { lang: queryLang } = req.query;
+
+    let langInfo;
+    try {
+      langInfo = validateLangParam(queryLang);
+    } catch (validationErr) {
+      const statusCode = validationErr.statusCode || 400;
+      return res
+        .status(statusCode)
+        .json({ success: false, message: validationErr.message });
+    }
+
     const [jobRows] = await db.query(
       `SELECT jp.id, jp.title, jp.description, jp.verification_status, jp.is_active,
               COUNT(a.id) AS total_applications
@@ -436,17 +541,33 @@ exports.getJobDetails = async (req, res) => {
       [id]
     );
 
+    const data = {
+      id: job.id,
+      job_title: job.title,
+      job_description: job.description,
+      verification_status: job.verification_status,
+      is_active: job.is_active,
+      total_applications: job.total_applications,
+      selection_stages: selectionStages,
+    };
+
+    if (!langInfo.isDefault) {
+      try {
+        const translations = await translationService.getJobTranslation(
+          job.id,
+          langInfo.lang
+        );
+        if (translations) {
+          data.translations = translations;
+        }
+      } catch (translationErr) {
+        console.error("Job translation fetch error:", translationErr);
+      }
+    }
+
     res.json({
       success: true,
-      data: {
-        id: job.id,
-        job_title: job.title,
-        job_description: job.description,
-        verification_status: job.verification_status,
-        is_active: job.is_active,
-        total_applications: job.total_applications,
-        selection_stages: selectionStages,
-      },
+      data,
     });
   } catch (err) {
     console.error("Get job details error:", err);
