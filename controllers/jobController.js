@@ -365,6 +365,7 @@ exports.updateJob = async (req, res) => {
 exports.deleteJob = async (req, res) => {
   try {
     const { id } = req.params;
+    await db.query("DELETE FROM job_post_translations WHERE job_id = ?", [id]);
     await db.query("DELETE FROM job_posts WHERE id = ?", [id]);
     res.json({ success: true, message: "Job deleted" });
   } catch (err) {

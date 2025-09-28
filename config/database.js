@@ -87,6 +87,7 @@ const initializeDatabase = async () => {
       "companies",
       "hr_profiles",
       "job_posts",
+      "job_post_translations",
       "applications",
       "bookmarks",
       "certificates",
@@ -145,6 +146,17 @@ const initializeDatabase = async () => {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_admin_logs_created (created_at),
         CONSTRAINT fk_admin_logs_admin FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS job_post_translations (
+        job_id INT NOT NULL,
+        language_code VARCHAR(16) NOT NULL,
+        translation_data LONGTEXT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (job_id, language_code),
+        CONSTRAINT fk_job_post_translations_job FOREIGN KEY (job_id) REFERENCES job_posts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
