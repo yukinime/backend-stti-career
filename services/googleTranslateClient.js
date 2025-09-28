@@ -1,13 +1,45 @@
 const { TranslationServiceClient } = require("@google-cloud/translate").v3;
 
-const projectId = process.env.GOOGLE_TRANSLATE_PROJECT_ID;
+let projectId = process.env.GOOGLE_TRANSLATE_PROJECT_ID;
 const location = process.env.GOOGLE_TRANSLATE_LOCATION || "global";
+
+const keyFilePath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+const rawCredentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+
+let clientOptions = {};
+let hasExplicitCredentials = false;
+
+if (rawCredentialsJson && rawCredentialsJson.trim().length > 0) {
+  try {
+    const credentials = JSON.parse(rawCredentialsJson);
+
+    if (!projectId && typeof credentials.project_id === "string") {
+      projectId = credentials.project_id;
+    }
+
+    clientOptions.credentials = {
+      client_email: credentials.client_email,
+      private_key: credentials.private_key,
+    };
+    hasExplicitCredentials = true;
+  } catch (err) {
+    console.error("Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON value", err);
+  }
+}
+
+if (!hasExplicitCredentials && keyFilePath && keyFilePath.trim().length > 0) {
+  clientOptions.keyFilename = keyFilePath.trim();
+}
+
+if (Object.keys(clientOptions).length === 0) {
+  clientOptions = null;
+}
 
 let client = null;
 let parentPath = null;
 
 if (projectId) {
-  client = new TranslationServiceClient();
+  client = new TranslationServiceClient(clientOptions || undefined);
   parentPath = `projects/${projectId}/locations/${location}`;
 } else {
   console.warn(
