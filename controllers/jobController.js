@@ -76,16 +76,13 @@ const mapJobPayloadToDb = (p = {}) => {
     out.description = descriptionVal;
   }
 
-  const requirementsVal = getAliasValue(p, [
-    "requirements",
-    "requirement",
-    "job_requirements",
-    "jobRequirements",
-    "jobRequirement",
-  ]);
-  if (requirementsVal !== undefined) {
-    out.requirements = requirementsVal;
-  }
+ out.requirements = p.qualifications ?? getAliasValue(p, [
+  "requirements",
+  "requirement",
+  "job_requirements",
+  "jobRequirements",
+  "jobRequirement",
+]);
 
   const salaryRangeVal = getAliasValue(p, ["salary_range", "salaryRange"]);
   if (salaryRangeVal !== undefined) {
@@ -99,6 +96,20 @@ const mapJobPayloadToDb = (p = {}) => {
   if (p.location !== undefined) out.location = p.location;
   if (p.salary_min !== undefined) out.salary_min = p.salary_min;
   if (p.salary_max !== undefined) out.salary_max = p.salary_max;
+
+
+
+ if (p.salary_range !== undefined) {
+  out.salary_range = p.salary_range;
+} else if (p.salary_min !== undefined || p.salary_max !== undefined) {
+  if (p.salary_min !== undefined && p.salary_max !== undefined) {
+    out.salary_range = `${p.salary_min} - ${p.salary_max}`;
+  } else if (p.salary_min !== undefined) {
+    out.salary_range = `Min: ${p.salary_min}`;
+  } else if (p.salary_max !== undefined) {
+    out.salary_range = `Max: ${p.salary_max}`;
+  }
+}
 
   // biarkan work_type & work_time ditangani di create/update (wajib & normalisasi)
   return out;
@@ -121,6 +132,7 @@ const mapDbRowToApi = (r = {}) => ({
   salary_range: r.salary_range ?? null,
   work_type: r.work_type ?? null,
   work_time: r.work_time ?? null,
+  qualifications: r.requirements ?? null, // Map requirements DB -> qualifications API
   total_applicants: r.total_applicants ?? 0,
 });
 
@@ -386,7 +398,7 @@ exports.updateJob = async (req, res) => {
       delete raw.job_description;
     }
 
-    const reqVal = getAliasValue(raw, [
+      const reqVal = raw.qualifications ?? getAliasValue(raw, [
       "requirements",
       "requirement",
       "job_requirements",
@@ -395,17 +407,21 @@ exports.updateJob = async (req, res) => {
     ]);
     if (reqVal !== undefined) {
       raw.requirements = reqVal;
+      // hapus alias lama supaya tidak masuk ke payload
       delete raw.requirement;
       delete raw.job_requirements;
       delete raw.jobRequirements;
       delete raw.jobRequirement;
+      delete raw.qualifications;
     }
+
 
     const salaryRangeVal = getAliasValue(raw, ["salary_range", "salaryRange"]);
     if (salaryRangeVal !== undefined) {
       raw.salary_range = salaryRangeVal;
       delete raw.salaryRange;
     }
+
 
     // Normalisasi work_type / work_time bila dikirim
     if (raw.work_type !== undefined || raw.workType !== undefined) {
@@ -420,6 +436,16 @@ exports.updateJob = async (req, res) => {
       raw.work_time = wtm;
       delete raw.workTime;
     }
+
+    if (raw.salary_range === undefined && (raw.salary_min !== undefined || raw.salary_max !== undefined)) {
+  if (raw.salary_min !== undefined && raw.salary_max !== undefined) {
+    raw.salary_range = `${raw.salary_min} - ${raw.salary_max}`;
+  } else if (raw.salary_min !== undefined) {
+    raw.salary_range = `Min: ${raw.salary_min}`;
+  } else if (raw.salary_max !== undefined) {
+    raw.salary_range = `Max: ${raw.salary_max}`;
+  }
+}
 
     // Intersect: hanya field yang (diizinkan) & (ada di DB)
     const payload = {};
