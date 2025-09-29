@@ -1,8 +1,10 @@
 // controllers/jobController.js
 const { db } = require("../config/database");
 const translationService = require("../services/translationService");
-
+const toIDR = (n) => (n == null || isNaN(n) ? '' : `Rp ${Number(n).toLocaleString('id-ID')}`);
 const SUPPORTED_LANGS = ["id", "en", "ja"];
+
+
 
 // === Helper normalisasi & daftar nilai yang diizinkan ===
 const ALLOWED_WORK_TYPES = new Set(["on_site", "remote", "hybrid", "field"]); // field = Field Work/Mobile
@@ -53,6 +55,7 @@ const WORK_TIME_HINT =
 /* =========================
    Helpers: mapping payload
    ========================= */
+// Helpers: mapping payload (REPLACE THIS FUNCTION)
 const getAliasValue = (source = {}, aliases = []) => {
   for (const key of aliases) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
@@ -67,15 +70,13 @@ const mapJobPayloadToDb = (p = {}) => {
 
   // FE boleh kirim job_title/title -> simpan ke kolom DB: title
   const titleVal = getAliasValue(p, ["title", "job_title"]);
-  if (titleVal !== undefined) {
-    out.title = titleVal;
-  }
+  if (titleVal !== undefined) out.title = titleVal;
+
   // FE boleh kirim job_description/description -> simpan ke kolom DB: description
   const descriptionVal = getAliasValue(p, ["description", "job_description"]);
-  if (descriptionVal !== undefined) {
-    out.description = descriptionVal;
-  }
+  if (descriptionVal !== undefined) out.description = descriptionVal;
 
+  // requirements (alias yang umum dipakai FE)
   const requirementsVal = getAliasValue(p, [
     "requirements",
     "requirement",
@@ -83,47 +84,58 @@ const mapJobPayloadToDb = (p = {}) => {
     "jobRequirements",
     "jobRequirement",
   ]);
-  if (requirementsVal !== undefined) {
-    out.requirements = requirementsVal;
-  }
+  if (requirementsVal !== undefined) out.requirements = requirementsVal;
 
+  // salary_range (opsional, bisa diisi manual)
   const salaryRangeVal = getAliasValue(p, ["salary_range", "salaryRange"]);
-  if (salaryRangeVal !== undefined) {
-    out.salary_range = salaryRangeVal;
+  if (salaryRangeVal !== undefined) out.salary_range = salaryRangeVal;
+
+  // normalisasi is_active agar string "0"/"1" juga aman
+  if (p.is_active !== undefined || p.active !== undefined) {
+    const v = p.is_active ?? p.active;
+    out.is_active = (v === 1 || v === "1" || v === true || v === "true") ? 1 : 0;
   }
 
-  if (p.is_active !== undefined) out.is_active = p.is_active ? 1 : 0;
-
+  // field lain sesuai skema DB
   if (p.company_id !== undefined) out.company_id = p.company_id;
   if (p.category_id !== undefined) out.category_id = p.category_id;
   if (p.location !== undefined) out.location = p.location;
+
   if (p.salary_min !== undefined) out.salary_min = p.salary_min;
   if (p.salary_max !== undefined) out.salary_max = p.salary_max;
 
-  // biarkan work_type & work_time ditangani di create/update (wajib & normalisasi)
+  // NOTE: work_type & work_time diwajibkan & dinormalisasi di create/update, bukan di sini.
   return out;
 };
 
-const mapDbRowToApi = (r = {}) => ({
-  id: r.id,
-  job_title: r.title ?? null,
-  job_description: r.description ?? null,
-  requirements: r.requirements ?? null,
-  is_active: r.is_active ?? 0,
-  verification_status: r.verification_status ?? "pending",
-  created_at: r.created_at,
-  updated_at: r.updated_at,
-  company_id: r.company_id ?? null,
-  category_id: r.category_id ?? null,
-  location: r.location ?? null,
-  salary_min: r.salary_min ?? null,
-  salary_max: r.salary_max ?? null,
-  salary_range: r.salary_range ?? null,
-  work_type: r.work_type ?? null,
-  work_time: r.work_time ?? null,
-  total_applicants: r.total_applicants ?? 0,
-});
+const mapDbRowToApi = (r = {}) => {
+  const salaryMin = r.salary_min ?? 0;
+  const salaryMax = r.salary_max ?? 0;
 
+  const computedRange =
+    (r.salary_range ?? '').trim() ||
+    ((salaryMin || salaryMax) ? `${toIDR(salaryMin)} – ${toIDR(salaryMax)}` : '');
+
+  return {
+    id: r.id,
+    job_title: r.title ?? '',
+    job_description: r.description ?? '',
+    requirements: r.requirements ?? '',
+    is_active: r.is_active ?? 0,
+    verification_status: r.verification_status ?? 'pending',
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    company_id: r.company_id ?? null,
+    category_id: r.category_id ?? null,
+    location: r.location ?? '',
+    salary_min: salaryMin,
+    salary_max: salaryMax,
+    salary_range: computedRange,
+    work_type: r.work_type ?? '',
+    work_time: r.work_time ?? '',
+    total_applicants: r.total_applicants ?? 0,
+  };
+};
 const validateLangParam = (lang) => {
   if (!lang) return { lang: "id", isDefault: true };
   if (lang === "all") {
@@ -143,7 +155,8 @@ const validateLangParam = (lang) => {
    ========================= */
 exports.getAllJobs = async (req, res) => {
   try {
-    const { hrId, lang: queryLang } = req.query;
+    const hrId = req.query.hrId || req.query.hrid; // dukung ?hrId= atau ?hrid=
+    const queryLang = req.query.lang;
 
     let langInfo;
     try {
@@ -514,26 +527,18 @@ exports.getJobDetails = async (req, res) => {
 
     let langInfo;
     try {
-      langInfo = validateLangParam(queryLang);
+      langInfo = validateLangParam(queryLang); // gunakan validator yang sudah ada di file ini
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res.status(statusCode).json({ success: false, message: validationErr.message });
+      return res
+        .status(statusCode)
+        .json({ success: false, message: validationErr.message });
     }
 
+    // Ambil semua kolom supaya mapper bisa kerja konsisten
     const [jobRows] = await db.query(
       `SELECT
-         jp.id,
-         jp.title,
-         jp.description,
-         jp.requirements,
-         jp.salary_range,
-         jp.location,
-         jp.salary_min,
-         jp.salary_max,
-         jp.work_type,
-         jp.work_time,
-         jp.verification_status,
-         jp.is_active,
+         jp.*,
          COUNT(a.id) AS total_applications
        FROM job_posts jp
        LEFT JOIN applications a ON a.job_id = jp.id
@@ -541,44 +546,61 @@ exports.getJobDetails = async (req, res) => {
        GROUP BY jp.id`,
       [id]
     );
+
     if (!jobRows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
 
-    const job = jobRows[0];
+    // Pakai mapper global supaya format konsisten dengan endpoint lain
+    const base = mapDbRowToApi(jobRows[0]);
 
+    // Hitung salary_range kalau kosong tetapi salary_min/max ada
+    const formatIdr = (n) => `Rp ${Number(n).toLocaleString("id-ID")}`;
+    const computedSalaryRange = (() => {
+      const hasMin = base.salary_min !== null && base.salary_min !== undefined;
+      const hasMax = base.salary_max !== null && base.salary_max !== undefined;
+      if (hasMin && hasMax) return `${formatIdr(base.salary_min)} - ${formatIdr(base.salary_max)}`;
+      if (hasMin) return `${formatIdr(base.salary_min)}+`;
+      if (hasMax) return `≤ ${formatIdr(base.salary_max)}`;
+      return null;
+    })();
+    const salary_range = base.salary_range || computedSalaryRange || null;
+
+    // Ambil tahapan seleksi (kalau ada)
     const [selectionStages] = await db.query(
       `SELECT sp.phase_name, sp.status
-         FROM selection_phases sp
-        WHERE sp.job_id = ?
-        ORDER BY sp.id ASC`,
+       FROM selection_phases sp
+       WHERE sp.job_id = ?
+       ORDER BY sp.id ASC`,
       [id]
     );
 
+    // Rapikan string biar gak null (opsional, biar nyaman di FE)
+    const toStr = (v) => (v == null ? "" : String(v));
+
     const data = {
-      id: job.id,
-      job_title: job.title,
-      job_description: job.description,
-      requirements: job.requirements ?? null,
-      salary_range: job.salary_range ?? null,
-      location: job.location ?? null,
-      salary_min: job.salary_min ?? null,
-      salary_max: job.salary_max ?? null,
-      work_type: job.work_type ?? null,
-      work_time: job.work_time ?? null,
-      verification_status: job.verification_status,
-      is_active: job.is_active,
-      total_applications: job.total_applications,
-      selection_stages: selectionStages,
+      ...base,
+      job_title: toStr(base.job_title),
+      job_description: toStr(base.job_description),
+      requirements: toStr(base.requirements),
+      location: toStr(base.location),
+      salary_range,
+      selection_stages: selectionStages || [],
     };
 
-    // ---- translations (sekali saja) ----
+    // Tambahkan translate bila diminta
     if (!langInfo.isDefault) {
-      if (langInfo.lang === "all") {
-        data.translations = await translationService.getAllCachedTranslations(job.id);
-      } else {
-        const t = await translationService.getJobTranslation(job.id, langInfo.lang);
-        if (t) data.translations = { [langInfo.lang]: t };
+      try {
+        const translations = await translationService.getJobTranslation(
+          data.id,
+          langInfo.lang
+        );
+        if (translations) {
+          data.translations = translations;
+        }
+      } catch (translationErr) {
+        // jangan gagalkan request kalau translate fail
+        console.error("Job translation fetch error:", translationErr);
       }
     }
 

@@ -1,0 +1,63 @@
+[33m502b11a[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m penambahan route skill post put delete
+[33m071093f[m final translet
+[33m721cce0[m final translet
+[33mc387f45[m final translet
+[33mce3934e[m configurasi penyesuaian translet database
+[33m3d14d68[m chore: add @google-cloud/translate and update lockfile
+[33mc70ce0c[m Update jobController.js
+[33m43cbdbd[m Update readme.md
+[33mc5a0b40[m Update googleTranslateClient.js
+[33mc002d99[m Merge pull request #7 from yukinime/codex/update-package-lock.json-for-dependency
+[33m6f1bd6b[m[33m ([m[1;31morigin/codex/update-package-lock.json-for-dependency[m[33m)[m Add translate dependency to lock file
+[33mff56ad9[m Merge pull request #6 from yukinime/codex/refactor-translation-services-and-implement-caching
+[33mc7d8e04[m[33m ([m[1;31morigin/codex/refactor-translation-services-and-implement-caching[m[33m)[m Add Google Translate integration for job translations
+[33m67ee7d2[m Merge pull request #3 from yukinime/codex/add-language-support-to-job-controller
+[33mfa27f9e[m Merge pull request #4 from yukinime/codex/add-job_post_translations-table-and-helpers
+[33m5c4fd57[m Merge pull request #5 from yukinime/codex/update-readme-and-docs-with-env-variables-and-examples
+[33mab36ad7[m[33m ([m[1;31morigin/codex/update-readme-and-docs-with-env-variables-and-examples[m[33m)[m Document translation env vars and lang usage
+[33mdf64b16[m[33m ([m[1;31morigin/codex/add-job_post_translations-table-and-helpers[m[33m)[m Add job post translation cache support
+[33m22b3cbd[m[33m ([m[1;31morigin/codex/add-language-support-to-job-controller[m[33m)[m feat: add translation support for job endpoints
+[33m373c666[m Merge pull request #1 from yukinime/codex/update-job-payload-handling-and-api-responses
+[33m1c1dafd[m[33m ([m[1;31morigin/codex/update-job-payload-handling-and-api-responses[m[33m)[m Add requirements and salary range support to job endpoints
+[33m63ca9de[m merubah profile untuk all role
+[33maa9fca0[m merubah profile untuk all role
+[33m9d76383[m merubah konsistensi upload profile agar tidak hilang
+[33m0ea8b42[m 2 file perubahan dari japar
+[33m0dde839[m perbaikan database.js
+[33m96e92f7[m first commit
+[33m6398e8f[m Add backup_railway.sql
+[33m7626a15[m Update Jobs + workType/workTime
+[33m74c5a46[m update middleware 24h
+[33mb5679fc[m update upload HR/ADM/PELAMAR
+[33m0e10485[m fix create/post applicant
+[33mb824403[m fix applicant post
+[33md9c088e[m upload update
+[33m5476b96[m fix(server): remove duplicate imports & solid /uploads static
+[33m50a0eec[m sync: resolve after rebase/merge
+[33mf2cd680[m[33m ([m[1;32mbackup/local-20250924-123004[m[33m, [m[1;32mbackup/local-20250924-122824[m[33m, [m[1;32mbackup/local-20250924-122820[m[33m)[m update logic upload
+[33m03051b2[m fix PUT pelamar
+[33mdabe81c[m Update authController.js
+[33m1a6ded9[m JobControll.js Frontend gak perlu diubah
+[33m79ff55c[m UpdateControll.js getAllUser
+[33mf361572[m UpdateControll.js getAllUser
+[33mdaaa654[m UpdateControll.js getAllUser
+[33m5aeaa5e[m UpdateControll.js getAllUser
+[33meb359b5[m UpdateControll.js getAllUser
+[33mdbb9a7b[m Update readme.md
+[33ma44cfa0[m Update readme.md
+[33m2b4842d[m Update STTI_Career_API.postman_collection.json
+[33m97181f6[m Update STTI_Career_API.md
+[33m9b47e1c[m Update STTI_Career_API.md
+[33m8e153e4[m fix: perbaiki export initializeDatabase di database.js
+[33mb7de4ad[m tambahkan readme.md
+[33m80e0dbf[m docs: add API docs + Postman collection
+[33m7630f57[m update penyesuaian role admin untuk dashboard + Perbaikan
+[33m912bc75[m update penyesuaian role admin untuk dashboard + Perbaikan
+[33m66d669c[m update penyesuaian role admin untuk dashboard + Perbaikan
+[33m19ea800[m Menambahkan file dan update proyek
+[33m6696a45[m Menambahkan file dan update proyek
+[33mc9a97be[m Delete database.sql
+[33mab8ab65[m Update database.sql
+[33mac36c0b[m update bookmark
+[33m8a73f1b[m update
+[33m5863b74[m deploy
