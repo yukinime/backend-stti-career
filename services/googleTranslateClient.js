@@ -1,3 +1,5 @@
+// services/googleTranslateClient.js
+
 const { TranslationServiceClient } = require("@google-cloud/translate").v3;
 
 let projectId = process.env.GOOGLE_TRANSLATE_PROJECT_ID;

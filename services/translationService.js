@@ -1,6 +1,6 @@
 const { db } = require("../config/database");
 const cache = require('../utils/translationCache');
-const gtx = require('../utils/googleTranslateClient'); 
+const { translateFields } = require('./googleTranslateClient');
 
 // ===== Label enum multi-bahasa (tanpa pakai API Translate) =====
 const ENUM_LABELS = {
