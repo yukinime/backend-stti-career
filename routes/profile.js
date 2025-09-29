@@ -976,4 +976,69 @@ router.delete('/me/files', authenticateToken, async (req, res) => {
   }
 });
 
+/* ===========================
+   SKILL CRUD (khusus pelamar)
+   =========================== */
+router.post('/skill', authenticateToken, requireRole('pelamar'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { skill_name, skill_level } = req.body;
+    if (!skill_name || !skill_level) {
+      return res.status(400).json({ success: false, message: 'Nama skill dan level wajib diisi' });
+    }
+
+    const [result] = await pool.execute(
+      'INSERT INTO skills (user_id, skill_name, skill_level) VALUES (?, ?, ?)',
+      [userId, skill_name, skill_level]
+    );
+    return res.json({
+      success: true,
+      message: 'Skill berhasil ditambahkan',
+      data: { id: result.insertId }
+    });
+  } catch (error) {
+    console.error('❌ Error adding skill:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menambahkan skill' });
+  }
+});
+
+router.put('/skill/:id', authenticateToken, requireRole('pelamar'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { skill_name, skill_level } = req.body;
+    if (!skill_name || !skill_level) {
+      return res.status(400).json({ success: false, message: 'Nama skill dan level wajib diisi' });
+    }
+
+    const [result] = await pool.execute(
+      'UPDATE skills SET skill_name=?, skill_level=?, updated_at=NOW() WHERE id=? AND user_id=?',
+      [skill_name, skill_level, id, userId]
+    );
+    if (!result.affectedRows) {
+      return res.status(404).json({ success: false, message: 'Skill tidak ditemukan' });
+    }
+    return res.json({ success: true, message: 'Skill berhasil diperbarui' });
+  } catch (error) {
+    console.error('❌ Error updating skill:', error);
+    return res.status(500).json({ success: false, message: 'Gagal memperbarui skill' });
+  }
+});
+
+router.delete('/skill/:id', authenticateToken, requireRole('pelamar'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const [result] = await pool.execute('DELETE FROM skills WHERE id=? AND user_id=?', [id, userId]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ success: false, message: 'Skill tidak ditemukan' });
+    }
+    return res.json({ success: true, message: 'Skill berhasil dihapus' });
+  } catch (error) {
+    console.error('❌ Error deleting skill:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus skill' });
+  }
+});
+
+
 module.exports = router;
