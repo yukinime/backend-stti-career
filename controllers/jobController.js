@@ -312,7 +312,8 @@ exports.getJobById = async (req, res) => {
         jobData.translations = await translationService.getAllCachedTranslations(jobData.id);
       } else {
         const t = await translationService.getJobTranslation(jobData.id, langInfo.lang);
-        if (t) jobData.translations = { [langInfo.lang]: t };
+        if (t) jobData.translations = t;
+
       }
     }
 
@@ -668,4 +669,14 @@ exports.getAllJobs = async (req, res) => {
     console.error("Database query error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
+};
+
+module.exports = {
+  getAllJobs: exports.getAllJobs,
+  getJobSummary: exports.getJobSummary,
+  getJobById: exports.getJobById,
+  createJob: exports.createJob,
+  updateJob: exports.updateJob,
+  deleteJob: exports.deleteJob,
+  verifyJob: exports.verifyJob,
 };
