@@ -560,12 +560,11 @@ exports.verifyJob = async (req, res) => {
 /* =========================
    GET: detail job (+ total pelamar & tahapan)
    ========================= */
-exports.getJobDetails = async (req, res) => {
+exports.getAllJobs = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { lang: queryLang } = req.query;
+    const { hrId, lang: queryLang } = req.query;
 
-    // validasi & normalisasi param lang (id / en / ja / all)
+    // validasi param lang: id / en / ja / all
     let langInfo;
     try {
       langInfo = validateLangParam(queryLang);
@@ -576,78 +575,97 @@ exports.getJobDetails = async (req, res) => {
         .json({ success: false, message: validationErr.message });
     }
 
-    // ambil detail job + total aplikasi
-    const [jobRows] = await db.query(
-      `SELECT
-         jp.id,
-         jp.title,
-         jp.description,
-         jp.requirements,
-         jp.salary_range,
-         jp.location,
-         jp.salary_min,
-         jp.salary_max,
-         jp.work_type,
-         jp.work_time,
-         jp.verification_status,
-         jp.is_active,
-         COUNT(a.id) AS total_applications
-       FROM job_posts jp
-       LEFT JOIN applications a ON a.job_id = jp.id
-       WHERE jp.id = ?
-       GROUP BY jp.id`,
-      [id]
-    );
-    if (!jobRows.length) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Job not found" });
+    // Ambil jobs (kalau hrId ada => semua job HR tsb; kalau tidak => hanya yang aktif & verified)
+    let sql = `
+      SELECT
+        jp.*,
+        COUNT(a.id) AS total_applicants
+      FROM job_posts jp
+      LEFT JOIN applications a ON a.job_id = jp.id
+      WHERE 1=1
+    `;
+    const values = [];
+
+    if (hrId) {
+      sql += " AND jp.hr_id = ?";
+      values.push(hrId);
+    } else {
+      sql += " AND jp.is_active = 1 AND jp.verification_status = 'verified'";
     }
 
-    const job = jobRows[0];
+    sql += " GROUP BY jp.id ORDER BY jp.created_at DESC";
 
-    // ambil tahapan seleksi
-    const [selectionStages] = await db.query(
-      `SELECT sp.phase_name, sp.status
-         FROM selection_phases sp
-        WHERE sp.job_id = ?
-        ORDER BY sp.id ASC`,
-      [id]
-    );
+    const [rows] = await db.query(sql, values);
+    const jobs = rows.map(mapDbRowToApi);
 
-    // bentuk response utama
-    const data = {
-      id: job.id,
-      job_title: job.title,
-      job_description: job.description,
-      requirements: job.requirements ?? null,
-      salary_range: job.salary_range ?? null,
-      location: job.location ?? null,
-      salary_min: job.salary_min ?? null,
-      salary_max: job.salary_max ?? null,
-      work_type: job.work_type ?? null,
-      work_time: job.work_time ?? null,
-      verification_status: job.verification_status,
-      is_active: job.is_active,
-      total_applications: job.total_applications,
-      selection_stages: selectionStages,
-    };
-
-    // ---- translations (sekali saja, bentuk rapi tanpa double nesting) ----
+    // === TRANSLATIONS ===
+    // - id (default) => gak perlu
+    // - en / ja => ambil per-job; kalau cache belum ada, warm lalu ambil lagi
+    // - all => ambil semua cached translation (tanpa nembak API)
     if (!langInfo.isDefault) {
       if (langInfo.lang === "all") {
-        // ambil semua cache terisi: { en:{...}, ja:{...} }
-        data.translations = await translationService.getAllCachedTranslations(job.id);
+        await Promise.all(
+          jobs.map(async (job) => {
+            try {
+              const all = await translationService.getAllCachedTranslations(job.id);
+              if (all && Object.keys(all).length) {
+                job.translations = all; // { en:{..}, ja:{..} } kalau tersedia
+              }
+            } catch (e) {
+              console.error("getAllCachedTranslations error:", e);
+            }
+          })
+        );
       } else {
-        // ambil 1 bahasa → kembalikan { <lang> : {...} }
-        const t = await translationService.getJobTranslation(job.id, langInfo.lang);
-        if (t) data.translations = { [langInfo.lang]: t };
+        // 1 bahasa spesifik (en / ja)
+        await Promise.all(
+          jobs.map(async (job) => {
+            try {
+              // bentuk base payload buat translet kalau cache kosong
+              const base = {
+                job_title: job.job_title || "",
+                job_description: job.job_description || "",
+                requirements: job.requirements || "",
+                salary_range: job.salary_range || "",
+                location: job.location || "",
+                work_type: job.work_type || null,
+                work_time: job.work_time || null,
+                verification_status: job.verification_status || null,
+                is_active: job.is_active ?? 0,
+              };
+
+              // 1) coba ambil dari cache
+              let t = await translationService.getJobTranslation(job.id, langInfo.lang);
+
+              // 2) kalau belum ada, warm cache utk bahasa ini, lalu ambil lagi
+              if (!t) {
+                try {
+                  await translationService.refreshJobTranslations(
+                    job.id,
+                    [langInfo.lang], // hanya bahasa yg diminta
+                    base
+                  );
+                  t = await translationService.getJobTranslation(job.id, langInfo.lang);
+                } catch (warmErr) {
+                  console.error("warm translations error:", warmErr);
+                }
+              }
+
+              if (t) {
+                // simpan rapi: { "ja": {..} } / { "en": {..} }
+                job.translations = { [langInfo.lang]: t };
+              }
+            } catch (e) {
+              console.error("job translation fetch error:", e);
+            }
+          })
+        );
       }
     }
 
-    res.json({ success: true, data });
+    return res.json({ success: true, data: jobs });
   } catch (err) {
-    console.error("Get job details error:", err);
+    console.error("Database query error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
