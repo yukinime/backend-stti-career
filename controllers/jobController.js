@@ -4,10 +4,17 @@ const translationService = require("../services/translationService");
 
 const SUPPORTED_LANGS = ["id", "en", "ja"];
 
-//UPDATE BARU
 // === Helper normalisasi & daftar nilai yang diizinkan ===
 const ALLOWED_WORK_TYPES = new Set(["on_site", "remote", "hybrid", "field"]); // field = Field Work/Mobile
-const ALLOWED_WORK_TIMES = new Set(["full_time", "part_time", "freelance", "internship", "contract", "volunteer", "seasonal"]);
+const ALLOWED_WORK_TIMES = new Set([
+  "full_time",
+  "part_time",
+  "freelance",
+  "internship",
+  "contract",
+  "volunteer",
+  "seasonal",
+]);
 
 const _norm = (v) =>
   String(v || "")
@@ -38,9 +45,10 @@ const normalizeWorkTime = (val) => {
 };
 
 // Pesan bantuan untuk FE kalau ngirim nilai salah
-const WORK_TYPE_HINT = "work_type harus salah satu dari: on_site(WFO), remote(WFH), hybrid, field(mobile)";
-const WORK_TIME_HINT = "work_time harus salah satu dari: full_time, part_time, freelance, internship, contract, volunteer, seasonal";
-//SELESAI UPDATE
+const WORK_TYPE_HINT =
+  "work_type harus salah satu dari: on_site(WFO), remote(WFH), hybrid, field(mobile)";
+const WORK_TIME_HINT =
+  "work_time harus salah satu dari: full_time, part_time, freelance, internship, contract, volunteer, seasonal";
 
 /* =========================
    Helpers: mapping payload
@@ -111,12 +119,11 @@ const mapDbRowToApi = (r = {}) => ({
   salary_min: r.salary_min ?? null,
   salary_max: r.salary_max ?? null,
   salary_range: r.salary_range ?? null,
-  // ⬇️ tambahkan 2 field baru agar FE dapat nilainya
   work_type: r.work_type ?? null,
   work_time: r.work_time ?? null,
-
   total_applicants: r.total_applicants ?? 0,
 });
+
 const validateLangParam = (lang) => {
   if (!lang) return { lang: "id", isDefault: true };
   if (lang === "all") {
@@ -131,6 +138,9 @@ const validateLangParam = (lang) => {
   return { lang, isDefault: lang === "id" };
 };
 
+/* =========================
+   GET: semua job
+   ========================= */
 exports.getAllJobs = async (req, res) => {
   try {
     const { hrId, lang: queryLang } = req.query;
@@ -140,9 +150,7 @@ exports.getAllJobs = async (req, res) => {
       langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res
-        .status(statusCode)
-        .json({ success: false, message: validationErr.message });
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
     let sql = `
@@ -167,17 +175,13 @@ exports.getAllJobs = async (req, res) => {
     sql += " GROUP BY jp.id ORDER BY jp.created_at DESC";
 
     const [rows] = await db.query(sql, values);
-
     const jobs = rows.map(mapDbRowToApi);
 
     if (!langInfo.isDefault) {
       await Promise.all(
         jobs.map(async (job) => {
           try {
-            const translations = await translationService.getJobTranslation(
-              job.id,
-              langInfo.lang
-            );
+            const translations = await translationService.getJobTranslation(job.id, langInfo.lang);
             if (translations) {
               job.translations = translations;
             }
@@ -188,16 +192,12 @@ exports.getAllJobs = async (req, res) => {
       );
     }
 
-    res.json({
-      success: true,
-      data: jobs,
-    });
+    res.json({ success: true, data: jobs });
   } catch (err) {
     console.error("Database query error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 /* =========================
    GET: ringkasan job
@@ -243,9 +243,7 @@ exports.getJobById = async (req, res) => {
       langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res
-        .status(statusCode)
-        .json({ success: false, message: validationErr.message });
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
     const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ?", [id]);
@@ -257,10 +255,7 @@ exports.getJobById = async (req, res) => {
 
     if (!langInfo.isDefault) {
       try {
-        const translations = await translationService.getJobTranslation(
-          jobData.id,
-          langInfo.lang
-        );
+        const translations = await translationService.getJobTranslation(jobData.id, langInfo.lang);
         if (translations) {
           jobData.translations = translations;
         }
@@ -276,6 +271,9 @@ exports.getJobById = async (req, res) => {
   }
 };
 
+/* =========================
+   POST: create job
+   ========================= */
 exports.createJob = async (req, res) => {
   try {
     const payload = mapJobPayloadToDb(req.body);
@@ -319,6 +317,7 @@ exports.createJob = async (req, res) => {
 
     const [result] = await db.query("INSERT INTO job_posts SET ?", [payload]);
 
+    // Warm translations (optional)
     try {
       await translationService.refreshJobTranslations(
         result.insertId,
@@ -439,6 +438,7 @@ exports.updateJob = async (req, res) => {
 
     await db.query("UPDATE job_posts SET ? WHERE id = ?", [payload, id]);
 
+    // Refresh translations (optional)
     try {
       await translationService.refreshJobTranslations(
         id,
@@ -455,6 +455,7 @@ exports.updateJob = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 /* =========================
    DELETE: hapus job
    ========================= */
@@ -509,7 +510,6 @@ exports.verifyJob = async (req, res) => {
 exports.getJobDetails = async (req, res) => {
   try {
     const { id } = req.params;
-
     const { lang: queryLang } = req.query;
 
     let langInfo;
@@ -517,14 +517,24 @@ exports.getJobDetails = async (req, res) => {
       langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res
-        .status(statusCode)
-        .json({ success: false, message: validationErr.message });
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
     const [jobRows] = await db.query(
-      `SELECT jp.id, jp.title, jp.description, jp.verification_status, jp.is_active,
-              COUNT(a.id) AS total_applications
+      `SELECT
+         jp.id,
+         jp.title,
+         jp.description,
+         jp.requirements,
+         jp.salary_range,
+         jp.location,
+         jp.salary_min,
+         jp.salary_max,
+         jp.work_type,
+         jp.work_time,
+         jp.verification_status,
+         jp.is_active,
+         COUNT(a.id) AS total_applications
        FROM job_posts jp
        LEFT JOIN applications a ON a.job_id = jp.id
        WHERE jp.id = ?
@@ -541,7 +551,8 @@ exports.getJobDetails = async (req, res) => {
     const [selectionStages] = await db.query(
       `SELECT sp.phase_name, sp.status
        FROM selection_phases sp
-       WHERE sp.job_id = ?`,
+       WHERE sp.job_id = ?
+       ORDER BY sp.id ASC`,
       [id]
     );
 
@@ -549,6 +560,13 @@ exports.getJobDetails = async (req, res) => {
       id: job.id,
       job_title: job.title,
       job_description: job.description,
+      requirements: job.requirements ?? null,
+      salary_range: job.salary_range ?? null,
+      location: job.location ?? null,
+      salary_min: job.salary_min ?? null,
+      salary_max: job.salary_max ?? null,
+      work_type: job.work_type ?? null,
+      work_time: job.work_time ?? null,
       verification_status: job.verification_status,
       is_active: job.is_active,
       total_applications: job.total_applications,
@@ -557,10 +575,7 @@ exports.getJobDetails = async (req, res) => {
 
     if (!langInfo.isDefault) {
       try {
-        const translations = await translationService.getJobTranslation(
-          job.id,
-          langInfo.lang
-        );
+        const translations = await translationService.getJobTranslation(job.id, langInfo.lang);
         if (translations) {
           data.translations = translations;
         }
@@ -569,10 +584,7 @@ exports.getJobDetails = async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      data,
-    });
+    res.json({ success: true, data });
   } catch (err) {
     console.error("Get job details error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
