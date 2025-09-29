@@ -7,7 +7,7 @@ const { authenticateToken, isAdmin } = require('../middleware/auth');
 // Public routes
 router.get('/', jobController.getAllJobs);
 router.get('/loker/summary', jobController.getJobSummary);
-router.get('/details/:id', jobController.getJobDetails);
+router.get('/details/:id', jobController.getJobById);
 router.get('/:id', jobController.getJobById);
 
 // Protected routes (require auth)

@@ -1,12 +1,33 @@
 // services/translationService.js
-
 const { db } = require("../config/database");
 const { translateFields } = require("./googleTranslateClient");
+
+// ⬇️ FUNGSI INI WAJIB DI ATAS PEMAKAIAN
+function normalizeTranslationShape(src = {}, lang = "id") {
+  let v = src;
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (_) { v = {}; } }
+  const toStrOrNull = (x) => (x === undefined || x === null) ? null : String(x);
+  return {
+    job_title: toStrOrNull(v.job_title),
+    job_description: toStrOrNull(v.job_description),
+    requirements: (v.requirements == null) ? null : String(v.requirements),
+    salary_range: toStrOrNull(v.salary_range),
+    location: toStrOrNull(v.location),
+    work_type_label: toStrOrNull(v.work_type_label),
+    work_time_label: toStrOrNull(v.work_time_label),
+    verification_status_label: toStrOrNull(v.verification_status_label),
+    is_active_label: toStrOrNull(v.is_active_label),
+    lang,
+  };
+}
+
 const {
   getCachedTranslation,
-  getTranslationWithFallback,
+  getTranslationWithFallback, // kalau tak dipakai, boleh dihapus impor ini
   saveTranslation,
 } = require("../utils/translationCache");
+
+// --- Normalizer: rapihin bentuk data terjemahan yang dibaca dari cache DB ---
 
 const DEFAULT_SOURCE_LANG = "id";
 
@@ -186,37 +207,94 @@ const getAllCachedTranslations = async (jobId) => {
 
 // GET terjemahan 1 bahasa atau "all"
 async function getJobTranslation(jobId, lang) {
-  if (!lang || lang === DEFAULT_SOURCE_LANG) return null;
+  // 1) Cek cache tabel job_post_translations
+  const [cacheRows] = await db.query(
+    `SELECT translation_data
+     FROM job_post_translations
+     WHERE job_id = ? AND language_code = ?
+     LIMIT 1`,
+    [jobId, lang]
+  );
 
-  // "all": gabungkan dari cache + tambahkan versi ID asli sebagai fallback
-  if (lang === "all") {
-    const baseRow = await fetchJobBaseData(jobId);
-    const all = await getAllCachedTranslations(jobId);
-    if (baseRow) {
-      all[DEFAULT_SOURCE_LANG] = {
-        ...buildTranslatable(baseRow),
-        ...addEnumLabels(baseRow, DEFAULT_SOURCE_LANG),
-        lang: DEFAULT_SOURCE_LANG,
-      };
-    }
-    return Object.keys(all).length ? all : null;
+  if (cacheRows.length) {
+    const raw = cacheRows[0].translation_data;
+    const normalized = normalizeTranslationShape(raw, lang);
+    return { [lang]: normalized };
   }
 
-  // Ambil dari cache; kalau miss, generate dan simpan
-  const fetchFn = async () => {
-    const row = await fetchJobBaseData(jobId);
-    if (!row) return null;
+  // 2) Ambil data dasar dari DB
+  const [jobRows] = await db.query(
+    `SELECT
+       id, title, description, requirements,
+       salary_range, location, salary_min, salary_max,
+       work_type, work_time, verification_status, is_active
+     FROM job_posts
+     WHERE id = ?
+     LIMIT 1`,
+    [jobId]
+  );
 
-    const strings = buildTranslatable(row);
-    const translatedStrings = await translateJobFields(lang, strings);
-    if (!translatedStrings) return null;
+  if (!jobRows.length) return { [lang]: null };
 
-    return buildTranslationPayload(row, lang, translatedStrings);
+  const j = jobRows[0];
+
+  // Label ID (biar gampang diterjemahkan oleh translateFields)
+  const workTypeLabelId = {
+    on_site: "On-site (WFO)",
+    remote: "Remote (WFH)",
+    hybrid: "Hybrid",
+    field: "Field Work / Mobile",
+  }[j.work_type] || "";
+
+  const workTimeLabelId = {
+    full_time: "Full-time",
+    part_time: "Part-time",
+    freelance: "Freelance",
+    internship: "Internship",
+    contract: "Contract",
+    volunteer: "Volunteer",
+    seasonal: "Seasonal",
+  }[j.work_time] || "";
+
+  const verificationLabelId = {
+    pending: "Menunggu verifikasi",
+    verified: "Terverifikasi",
+    rejected: "Ditolak",
+  }[j.verification_status] || "";
+
+  const isActiveLabelId = j.is_active ? "Aktif" : "Nonaktif";
+
+  // Base yang dikirim ke translator (semua field penting ikut)
+  const base = {
+    job_title: j.title || "",
+    job_description: j.description || "",
+    requirements: j.requirements || "",
+    salary_range: j.salary_range || "",
+    location: j.location || "",
+    // info enum -> label
+    work_type_label: workTypeLabelId,
+    work_time_label: workTimeLabelId,
+    verification_status_label: verificationLabelId,
+    is_active_label: isActiveLabelId,
   };
 
-  const translation = await getTranslationWithFallback(jobId, lang, fetchFn);
-  if (!translation) return null;
-  return { [lang]: { ...translation, lang } };
+  // 3) Terjemahkan (HASIL HARUS PLAIN OBJECT, BUKAN dibungkus lang)
+  const translated = await translateFields(base, lang, {
+    labels: {} // kalau kamu mau kirim mapping tambahan, taruh di sini
+  });
+
+  // 4) Simpan ke cache DB: simpan PLAIN OBJECT (jangan dibungkus {lang: ...})
+  await db.query(
+    `INSERT INTO job_post_translations (job_id, language_code, translation_data)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       translation_data = VALUES(translation_data),
+       updated_at = CURRENT_TIMESTAMP`,
+    [jobId, lang, JSON.stringify(translated)]
+  );
+
+  // 5) Return dengan WRAP SEKALI { [lang]: ... }
+  return { [lang]: translated };
 }
 
 // Pre-warm / refresh cache (dipanggil saat CREATE/UPDATE job)
