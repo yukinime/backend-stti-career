@@ -147,16 +147,14 @@ exports.getAllJobs = async (req, res) => {
 
     let langInfo;
     try {
-      langInfo = validateLangParam(queryLang);
+      langInfo = validateLangParam(queryLang); // id | en | ja | all
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
       return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
     let sql = `
-      SELECT
-        jp.*,
-        COUNT(a.id) AS total_applicants
+      SELECT jp.*, COUNT(a.id) AS total_applicants
       FROM job_posts jp
       LEFT JOIN applications a ON a.job_id = jp.id
       WHERE 1=1
@@ -164,11 +162,9 @@ exports.getAllJobs = async (req, res) => {
     const values = [];
 
     if (hrId) {
-      // Dashboard HR → tampilkan semua job yang dibuat HR itu
       sql += " AND jp.hr_id = ?";
       values.push(hrId);
     } else {
-      // Untuk pelamar → hanya tampilkan lowongan aktif dan sudah diverifikasi
       sql += " AND jp.is_active = 1 AND jp.verification_status = 'verified'";
     }
 
@@ -177,19 +173,22 @@ exports.getAllJobs = async (req, res) => {
     const [rows] = await db.query(sql, values);
     const jobs = rows.map(mapDbRowToApi);
 
+    // ---- translations (sekali saja) ----
     if (!langInfo.isDefault) {
-      await Promise.all(
-        jobs.map(async (job) => {
-          try {
-            const translations = await translationService.getJobTranslation(job.id, langInfo.lang);
-            if (translations) {
-              job.translations = translations;
-            }
-          } catch (translationErr) {
-            console.error("Job translation fetch error:", translationErr);
-          }
-        })
-      );
+      if (langInfo.lang === "all") {
+        await Promise.all(
+          jobs.map(async (job) => {
+            job.translations = await translationService.getAllCachedTranslations(job.id);
+          })
+        );
+      } else {
+        await Promise.all(
+          jobs.map(async (job) => {
+            const t = await translationService.getJobTranslation(job.id, langInfo.lang);
+            if (t) job.translations = { [langInfo.lang]: t };
+          })
+        );
+      }
     }
 
     res.json({ success: true, data: jobs });
@@ -198,6 +197,7 @@ exports.getAllJobs = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 /* =========================
    GET: ringkasan job
@@ -247,20 +247,19 @@ exports.getJobById = async (req, res) => {
     }
 
     const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ?", [id]);
-
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
+
     const jobData = mapDbRowToApi(rows[0]);
 
+    // ---- translations (sekali saja) ----
     if (!langInfo.isDefault) {
-      try {
-        const translations = await translationService.getJobTranslation(jobData.id, langInfo.lang);
-        if (translations) {
-          jobData.translations = translations;
-        }
-      } catch (translationErr) {
-        console.error("Job translation fetch error:", translationErr);
+      if (langInfo.lang === "all") {
+        jobData.translations = await translationService.getAllCachedTranslations(jobData.id);
+      } else {
+        const t = await translationService.getJobTranslation(jobData.id, langInfo.lang);
+        if (t) jobData.translations = { [langInfo.lang]: t };
       }
     }
 
@@ -270,6 +269,7 @@ exports.getJobById = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 /* =========================
    POST: create job
@@ -541,7 +541,6 @@ exports.getJobDetails = async (req, res) => {
        GROUP BY jp.id`,
       [id]
     );
-
     if (!jobRows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
@@ -550,9 +549,9 @@ exports.getJobDetails = async (req, res) => {
 
     const [selectionStages] = await db.query(
       `SELECT sp.phase_name, sp.status
-       FROM selection_phases sp
-       WHERE sp.job_id = ?
-       ORDER BY sp.id ASC`,
+         FROM selection_phases sp
+        WHERE sp.job_id = ?
+        ORDER BY sp.id ASC`,
       [id]
     );
 
@@ -573,14 +572,13 @@ exports.getJobDetails = async (req, res) => {
       selection_stages: selectionStages,
     };
 
+    // ---- translations (sekali saja) ----
     if (!langInfo.isDefault) {
-      try {
-        const translations = await translationService.getJobTranslation(job.id, langInfo.lang);
-        if (translations) {
-          data.translations = translations;
-        }
-      } catch (translationErr) {
-        console.error("Job translation fetch error:", translationErr);
+      if (langInfo.lang === "all") {
+        data.translations = await translationService.getAllCachedTranslations(job.id);
+      } else {
+        const t = await translationService.getJobTranslation(job.id, langInfo.lang);
+        if (t) data.translations = { [langInfo.lang]: t };
       }
     }
 
