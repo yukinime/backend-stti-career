@@ -1,8 +1,8 @@
 // services/translationService.js
-
 const { db } = require("../config/database");
 const { translateFields } = require("./googleTranslateClient");
-// ⬇️ fungsi ini WAJIB ada di atas pemakaian
+
+// ⬇️ FUNGSI INI WAJIB DI ATAS PEMAKAIAN
 function normalizeTranslationShape(src = {}, lang = "id") {
   let v = src;
   if (typeof v === "string") { try { v = JSON.parse(v); } catch (_) { v = {}; } }
@@ -23,9 +23,8 @@ function normalizeTranslationShape(src = {}, lang = "id") {
 
 const {
   getCachedTranslation,
-  getTranslationWithFallback,
+  getTranslationWithFallback, // kalau tak dipakai, boleh dihapus impor ini
   saveTranslation,
-  
 } = require("../utils/translationCache");
 
 // --- Normalizer: rapihin bentuk data terjemahan yang dibaca dari cache DB ---
