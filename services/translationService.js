@@ -2,11 +2,33 @@
 
 const { db } = require("../config/database");
 const { translateFields } = require("./googleTranslateClient");
+// ⬇️ fungsi ini WAJIB ada di atas pemakaian
+function normalizeTranslationShape(src = {}, lang = "id") {
+  let v = src;
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (_) { v = {}; } }
+  const toStrOrNull = (x) => (x === undefined || x === null) ? null : String(x);
+  return {
+    job_title: toStrOrNull(v.job_title),
+    job_description: toStrOrNull(v.job_description),
+    requirements: (v.requirements == null) ? null : String(v.requirements),
+    salary_range: toStrOrNull(v.salary_range),
+    location: toStrOrNull(v.location),
+    work_type_label: toStrOrNull(v.work_type_label),
+    work_time_label: toStrOrNull(v.work_time_label),
+    verification_status_label: toStrOrNull(v.verification_status_label),
+    is_active_label: toStrOrNull(v.is_active_label),
+    lang,
+  };
+}
+
 const {
   getCachedTranslation,
   getTranslationWithFallback,
   saveTranslation,
+  
 } = require("../utils/translationCache");
+
+// --- Normalizer: rapihin bentuk data terjemahan yang dibaca dari cache DB ---
 
 const DEFAULT_SOURCE_LANG = "id";
 

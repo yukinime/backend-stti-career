@@ -653,7 +653,7 @@ exports.getAllJobs = async (req, res) => {
 
               if (t) {
                 // simpan rapi: { "ja": {..} } / { "en": {..} }
-                job.translations = { [langInfo.lang]: t };
+               job.translations = t;
               }
             } catch (e) {
               console.error("job translation fetch error:", e);
