@@ -76,7 +76,7 @@ const mapJobPayloadToDb = (p = {}) => {
   const descriptionVal = getAliasValue(p, ["description", "job_description"]);
   if (descriptionVal !== undefined) out.description = descriptionVal;
 
-  // requirements (alias yang umum dipakai FE)
+  // Requirements (menerima banyak alias)
   const requirementsVal = getAliasValue(p, [
     "requirements",
     "requirement",
@@ -86,25 +86,21 @@ const mapJobPayloadToDb = (p = {}) => {
   ]);
   if (requirementsVal !== undefined) out.requirements = requirementsVal;
 
-  // salary_range (opsional, bisa diisi manual)
+  // Salary range (string seperti “Rp 8–15 jt/bulan”)
   const salaryRangeVal = getAliasValue(p, ["salary_range", "salaryRange"]);
   if (salaryRangeVal !== undefined) out.salary_range = salaryRangeVal;
 
-  // normalisasi is_active agar string "0"/"1" juga aman
-  if (p.is_active !== undefined || p.active !== undefined) {
-    const v = p.is_active ?? p.active;
-    out.is_active = (v === 1 || v === "1" || v === true || v === "true") ? 1 : 0;
-  }
+  // Flag aktif -> normalisasi 0/1
+  if (p.is_active !== undefined) out.is_active = p.is_active ? 1 : 0;
 
-  // field lain sesuai skema DB
+  // Field umum lain sesuai kolom DB
   if (p.company_id !== undefined) out.company_id = p.company_id;
   if (p.category_id !== undefined) out.category_id = p.category_id;
   if (p.location !== undefined) out.location = p.location;
-
   if (p.salary_min !== undefined) out.salary_min = p.salary_min;
   if (p.salary_max !== undefined) out.salary_max = p.salary_max;
 
-  // NOTE: work_type & work_time diwajibkan & dinormalisasi di create/update, bukan di sini.
+  // NOTE: work_type & work_time ditangani di handler create/update (wajib + normalisasi)
   return out;
 };
 
@@ -155,19 +151,27 @@ const validateLangParam = (lang) => {
    ========================= */
 exports.getAllJobs = async (req, res) => {
   try {
-    const hrId = req.query.hrId || req.query.hrid; // dukung ?hrId= atau ?hrid=
-    const queryLang = req.query.lang;
+    const { hrId, lang: queryLang } = req.query;
 
-    let langInfo;
-    try {
-      langInfo = validateLangParam(queryLang); // id | en | ja | all
-    } catch (validationErr) {
-      const statusCode = validationErr.statusCode || 400;
-      return res.status(statusCode).json({ success: false, message: validationErr.message });
+    // --- Validasi bahasa sederhana (id, en, ja) ---
+    const SUPPORTED_LANGS = ["id", "en", "ja"];
+    let lang = "id";
+    if (queryLang) {
+      if (queryLang === "all") {
+        // kalau kamu perlu "all", kamu bisa extend sendiri
+        return res.status(400).json({ success: false, message: "lang=all belum didukung pada endpoint ini" });
+      }
+      if (!SUPPORTED_LANGS.includes(queryLang)) {
+        return res.status(400).json({ success: false, message: `Invalid lang. Supported: ${SUPPORTED_LANGS.join(", ")}` });
+      }
+      lang = queryLang;
     }
 
+    // --- Query dasar ---
     let sql = `
-      SELECT jp.*, COUNT(a.id) AS total_applicants
+      SELECT
+        jp.*,
+        COUNT(a.id) AS total_applicants
       FROM job_posts jp
       LEFT JOIN applications a ON a.job_id = jp.id
       WHERE 1=1
@@ -175,38 +179,74 @@ exports.getAllJobs = async (req, res) => {
     const values = [];
 
     if (hrId) {
-      sql += " AND jp.hr_id = ?";
+      // Dashboard HR -> tampilkan semua job milik HR tsb
+      sql += ` AND jp.hr_id = ?`;
       values.push(hrId);
     } else {
-      sql += " AND jp.is_active = 1 AND jp.verification_status = 'verified'";
+      // List umum -> hanya job aktif & sudah diverifikasi
+      sql += ` AND jp.is_active = 1 AND jp.verification_status = 'verified'`;
     }
 
-    sql += " GROUP BY jp.id ORDER BY jp.created_at DESC";
+    sql += ` GROUP BY jp.id ORDER BY jp.created_at DESC`;
 
     const [rows] = await db.query(sql, values);
-    const jobs = rows.map(mapDbRowToApi);
 
-    // ---- translations (sekali saja) ----
-    if (!langInfo.isDefault) {
-      if (langInfo.lang === "all") {
-        await Promise.all(
-          jobs.map(async (job) => {
-            job.translations = await translationService.getAllCachedTranslations(job.id);
-          })
-        );
-      } else {
-        await Promise.all(
-          jobs.map(async (job) => {
-            const t = await translationService.getJobTranslation(job.id, langInfo.lang);
-            if (t) job.translations = { [langInfo.lang]: t };
-          })
-        );
+    // --- Mapper + perapihan salary_range ---
+    const formatIdr = (n) => `Rp ${Number(n).toLocaleString("id-ID")}`;
+    const onlyDigits = (v) => typeof v === "string" && /^[0-9]+$/.test(v);
+
+    const jobs = rows.map((r) => {
+      const base = mapDbRowToApi(r);
+
+      const hasMin = base.salary_min != null;
+      const hasMax = base.salary_max != null;
+
+      // Fallback hitung dari min/max
+      let computedSalaryRange = null;
+      if (hasMin && hasMax) {
+        computedSalaryRange = `${formatIdr(base.salary_min)} - ${formatIdr(base.salary_max)}`;
+      } else if (hasMin) {
+        computedSalaryRange = `${formatIdr(base.salary_min)}+`;
+      } else if (hasMax) {
+        computedSalaryRange = `≤ ${formatIdr(base.salary_max)}`;
       }
+
+      // Perapihan salary_range dari DB
+      let finalSalaryRange = base.salary_range;
+      if (!finalSalaryRange || finalSalaryRange === "null") {
+        finalSalaryRange = computedSalaryRange || null;
+      } else if (onlyDigits(finalSalaryRange)) {
+        finalSalaryRange = formatIdr(finalSalaryRange);
+      }
+
+      return {
+        ...base,
+        salary_range: finalSalaryRange,
+        // Hindari null supaya FE gak ribet
+        job_title: base.job_title || "",
+        job_description: base.job_description || "",
+        requirements: base.requirements || "",
+        location: base.location || "",
+      };
+    });
+
+    // --- Tambahkan terjemahan bila lang != 'id' ---
+    if (lang !== "id" && jobs.length) {
+      await Promise.all(
+        jobs.map(async (job) => {
+          try {
+            const t = await translationService.getJobTranslation(job.id, lang);
+            if (t) job.translations = t; // bentuk: { [lang]: {...} }
+          } catch (e) {
+            console.error("Job translation fetch error:", e);
+          }
+        })
+      );
     }
 
     res.json({ success: true, data: jobs });
   } catch (err) {
-    console.error("Database query error:", err);
+    console.error("getAllJobs error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -525,9 +565,10 @@ exports.getJobDetails = async (req, res) => {
     const { id } = req.params;
     const { lang: queryLang } = req.query;
 
+    // validasi & normalisasi param lang (id / en / ja / all)
     let langInfo;
     try {
-      langInfo = validateLangParam(queryLang); // gunakan validator yang sudah ada di file ini
+      langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
       return res
@@ -535,10 +576,21 @@ exports.getJobDetails = async (req, res) => {
         .json({ success: false, message: validationErr.message });
     }
 
-    // Ambil semua kolom supaya mapper bisa kerja konsisten
+    // ambil detail job + total aplikasi
     const [jobRows] = await db.query(
       `SELECT
-         jp.*,
+         jp.id,
+         jp.title,
+         jp.description,
+         jp.requirements,
+         jp.salary_range,
+         jp.location,
+         jp.salary_min,
+         jp.salary_max,
+         jp.work_type,
+         jp.work_time,
+         jp.verification_status,
+         jp.is_active,
          COUNT(a.id) AS total_applications
        FROM job_posts jp
        LEFT JOIN applications a ON a.job_id = jp.id
@@ -546,61 +598,50 @@ exports.getJobDetails = async (req, res) => {
        GROUP BY jp.id`,
       [id]
     );
-
     if (!jobRows.length) {
-      return res.status(404).json({ success: false, message: "Job not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Job not found" });
     }
 
-    // Pakai mapper global supaya format konsisten dengan endpoint lain
-    const base = mapDbRowToApi(jobRows[0]);
+    const job = jobRows[0];
 
-    // Hitung salary_range kalau kosong tetapi salary_min/max ada
-    const formatIdr = (n) => `Rp ${Number(n).toLocaleString("id-ID")}`;
-    const computedSalaryRange = (() => {
-      const hasMin = base.salary_min !== null && base.salary_min !== undefined;
-      const hasMax = base.salary_max !== null && base.salary_max !== undefined;
-      if (hasMin && hasMax) return `${formatIdr(base.salary_min)} - ${formatIdr(base.salary_max)}`;
-      if (hasMin) return `${formatIdr(base.salary_min)}+`;
-      if (hasMax) return `≤ ${formatIdr(base.salary_max)}`;
-      return null;
-    })();
-    const salary_range = base.salary_range || computedSalaryRange || null;
-
-    // Ambil tahapan seleksi (kalau ada)
+    // ambil tahapan seleksi
     const [selectionStages] = await db.query(
       `SELECT sp.phase_name, sp.status
-       FROM selection_phases sp
-       WHERE sp.job_id = ?
-       ORDER BY sp.id ASC`,
+         FROM selection_phases sp
+        WHERE sp.job_id = ?
+        ORDER BY sp.id ASC`,
       [id]
     );
 
-    // Rapikan string biar gak null (opsional, biar nyaman di FE)
-    const toStr = (v) => (v == null ? "" : String(v));
-
+    // bentuk response utama
     const data = {
-      ...base,
-      job_title: toStr(base.job_title),
-      job_description: toStr(base.job_description),
-      requirements: toStr(base.requirements),
-      location: toStr(base.location),
-      salary_range,
-      selection_stages: selectionStages || [],
+      id: job.id,
+      job_title: job.title,
+      job_description: job.description,
+      requirements: job.requirements ?? null,
+      salary_range: job.salary_range ?? null,
+      location: job.location ?? null,
+      salary_min: job.salary_min ?? null,
+      salary_max: job.salary_max ?? null,
+      work_type: job.work_type ?? null,
+      work_time: job.work_time ?? null,
+      verification_status: job.verification_status,
+      is_active: job.is_active,
+      total_applications: job.total_applications,
+      selection_stages: selectionStages,
     };
 
-    // Tambahkan translate bila diminta
+    // ---- translations (sekali saja, bentuk rapi tanpa double nesting) ----
     if (!langInfo.isDefault) {
-      try {
-        const translations = await translationService.getJobTranslation(
-          data.id,
-          langInfo.lang
-        );
-        if (translations) {
-          data.translations = translations;
-        }
-      } catch (translationErr) {
-        // jangan gagalkan request kalau translate fail
-        console.error("Job translation fetch error:", translationErr);
+      if (langInfo.lang === "all") {
+        // ambil semua cache terisi: { en:{...}, ja:{...} }
+        data.translations = await translationService.getAllCachedTranslations(job.id);
+      } else {
+        // ambil 1 bahasa → kembalikan { <lang> : {...} }
+        const t = await translationService.getJobTranslation(job.id, langInfo.lang);
+        if (t) data.translations = { [langInfo.lang]: t };
       }
     }
 
