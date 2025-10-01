@@ -41,13 +41,15 @@ app.use((req, _res, next) => {
 });
 
 // ---- PUBLIC UPLOADS STATIC (Railway-friendly) ----
-const uploadsBase = process.env.UPLOADS_DIR || path.resolve('/tmp/uploads');
+const uploadsBase = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads');
+
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 ensureDir(uploadsBase);
 ensureDir(path.join(uploadsBase, 'images'));
 ensureDir(path.join(uploadsBase, 'files'));
+ensureDir(path.join(uploadsBase, 'company_logos'));
 
 // Serve /uploads dengan CORS & cache panjang
 app.use(
