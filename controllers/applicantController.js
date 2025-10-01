@@ -40,7 +40,55 @@ exports.getAllJobApplicants = async (req, res) => {
   }
 };
 
+exports.getHrJobApplicants = async (req, res) => {
+  try {
+    const { hrId, pelamarId, jobId, status } = req.query;
 
+    // Query SQL dengan join pelamar_profiles dan job_posts untuk dapatkan full_name dan title
+    let sql = `
+      SELECT 
+        a.id,
+        p.full_name AS nama,
+        a.applied_at AS tanggal,
+        a.resume_file AS cv,
+        j.title AS posisi,
+        a.status,
+        a.cover_letter,
+        a.notes
+      FROM applications a
+      JOIN pelamar_profiles p ON a.pelamar_id = p.id
+      JOIN job_posts j ON a.job_id = j.id
+      WHERE 1=1
+    `;
+
+    let values = [];
+
+    if (hrId) {
+      sql += " AND j.hr_id = ?";
+      values.push(hrId);
+    }
+
+    if (pelamarId) {
+      sql += " AND a.pelamar_id = ?";
+      values.push(pelamarId);
+    }
+
+    if (jobId) {
+      sql += " AND a.job_id = ?";
+      values.push(jobId);
+    }
+
+    if (status) {
+      sql += " AND a.status = ?";
+      values.push(status);
+    }
+
+    const [results] = await db.query(sql, values);
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 
 // GET job applicant by ID
 exports.getJobApplicantById = async (req, res) => {
