@@ -5,13 +5,12 @@ exports.getAllJobApplicants = async (req, res) => {
   try {
     const { hrId, pelamarId, jobId, status } = req.query;
 
-    // Query SQL dengan join pelamar_profiles dan job_posts untuk dapatkan full_name dan title
     let sql = `
       SELECT 
         a.id,
         p.full_name AS nama,
         a.applied_at AS tanggal,
-        a.resume_file AS cv,
+        p.cv_file AS cv,
         j.title AS posisi,
         a.status,
         a.cover_letter,
@@ -50,6 +49,7 @@ exports.getAllJobApplicants = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // GET job applicant by ID
 exports.getJobApplicantById = async (req, res) => {
