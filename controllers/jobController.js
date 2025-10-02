@@ -315,6 +315,27 @@ exports.getJobById = async (req, res) => {
 /* =========================
    POST: create job
    ========================= */
+
+// === Auto isi company_id & category_id ===
+async function autoFillCompanyAndCategory(req, payload, db) {
+  // Kalau FE sudah kirim, jangan diganti
+  if (!payload.company_id && req.user?.company_id) {
+    payload.company_id = req.user.company_id;
+  }
+
+  if (!payload.category_id && req.body.category_name) {
+    try {
+      const [rows] = await db.query(
+        "SELECT id FROM categories WHERE name = ? LIMIT 1",
+        [req.body.category_name]
+      );
+      if (rows.length) payload.category_id = rows[0].id;
+    } catch (e) {
+      console.error("auto category error:", e);
+    }
+  }
+}
+
 exports.createJob = async (req, res) => {
   try {
     const payload = mapJobPayloadToDb(req.body);
@@ -355,6 +376,8 @@ exports.createJob = async (req, res) => {
       });
     }
     payload.hr_id = hrId;
+        // Auto isi company_id & category_id
+    await autoFillCompanyAndCategory(req, payload, db);
 
     const [result] = await db.query("INSERT INTO job_posts SET ?", [payload]);
 
