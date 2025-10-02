@@ -1,5 +1,10 @@
 // controllers/bookmarkController.js
 const {pool} = require('../config/database');
+const buildBaseUrl = (req) =>
+  process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+const companyLogoUrl = (req, file) =>
+  file ? `${buildBaseUrl(req)}/uploads/company_logos/${file}` : null;
 
 /**
  * Get all bookmarked jobs for authenticated user
@@ -26,30 +31,35 @@ const getBookmarks = async (req, res) => {
         console.log('DBG /bookmarks', { userId, page, limit, offset });
         // Query untuk mendapatkan bookmarks dengan detail job posts
                 const sql = `
-                   SELECT 
-                b.id as bookmark_id,
-                b.user_id,
-                b.job_id,
-                b.created_at as bookmarked_at,
-                jp.id as job_post_id,
-                jp.title,
-                jp.description,
-                jp.requirements,
-                jp.salary_range,
-                jp.location,
-                jp.is_active,
-                jp.created_at as job_created_at,
-                jp.updated_at as job_updated_at,
-                u.full_name as hr_name,
-                u.company_name,
-                COUNT(*) OVER() as total_count
+                SELECT 
+                    b.id AS bookmark_id,
+                    b.user_id,
+                    b.job_id,
+                    b.created_at AS bookmarked_at,
+
+                    jp.id AS job_post_id,
+                    jp.title,
+                    jp.description,
+                    jp.requirements,
+                    jp.salary_range,
+                    jp.location,
+                    jp.is_active,
+                    jp.created_at AS job_created_at,
+                    jp.updated_at AS job_updated_at,
+
+                    u.full_name AS hr_name,
+                    COALESCE(c.nama_companies, u.company_name) AS company_name,
+                    c.logo AS company_logo,
+
+                    COUNT(*) OVER() AS total_count
                 FROM bookmarks b
                 LEFT JOIN job_posts jp ON b.job_id = jp.id
-                LEFT JOIN users u ON jp.hr_id = u.id
+                LEFT JOIN users u      ON jp.hr_id = u.id
+                LEFT JOIN companies c  ON c.id = jp.company_id
                 WHERE b.user_id = ?
                 ORDER BY b.created_at DESC
                 LIMIT ${limit} OFFSET ${offset}
-            `;
+                `;
 
              const [bookmarkedJobs] = await pool.query(sql, [userId]);
 
@@ -58,7 +68,7 @@ const getBookmarks = async (req, res) => {
         const totalPages = Math.ceil(totalCount / limit);
 
         // Format response data
-        const formattedJobs = bookmarkedJobs.map(job => ({
+            const formattedJobs = bookmarkedJobs.map(job => ({
             bookmark_id: job.bookmark_id,
             user_id: job.user_id,
             job_id: job.job_id,
@@ -74,11 +84,12 @@ const getBookmarks = async (req, res) => {
                 created_at: job.job_created_at,
                 updated_at: job.job_updated_at,
                 hr_info: {
-                    name: job.hr_name,
-                    company_name: job.company_name
+                name: job.hr_name,
+                company_name: job.company_name || '',
+                company_logo_url: companyLogoUrl(req, job.company_logo) // ⬅️ tambahkan ini
                 }
             } : null
-        }));
+            }));
 
         res.json({
             success: true,

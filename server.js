@@ -40,8 +40,8 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ---- PUBLIC UPLOADS STATIC (Railway-friendly) ----
-const uploadsBase = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads');
+// ✅ Cloud Run: pakai /tmp (writable & ephemeral) < JARANG DIRUBAH 
+const uploadsBase = process.env.UPLOADS_DIR || path.resolve('/tmp/uploads');
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -252,6 +252,7 @@ const startServer = async () => {
     }
     process.exit(1);
   }
+  console.log('📁 Uploads base dir:', uploadsBase);
 };
 
 startServer();
