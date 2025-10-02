@@ -22,7 +22,7 @@ exports.getAllJobApplicants = async (req, res) => {
       WHERE 1=1
     `;
 
-    let values = [hrId];
+    let values = [];
 
     if (hrId) {
       sql += " AND j.hr_id = ?";
@@ -129,3 +129,6 @@ exports.deleteJobApplicant = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+console.log("req.user:", req.user);
+console.log("Final SQL:", sql);
+console.log("Values:", values);
