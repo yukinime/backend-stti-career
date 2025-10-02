@@ -50,7 +50,7 @@ exports.getAllCompanies = async (req, res) => {
 exports.getCompanyById = async (req, res) => {
   const companyId = req.params.id;
   try {
-    const [rows, fields] = await db.query('SELECT * FROM companies WHERE id_companies = ?', [companyId]);
+    const [rows, fields] = await db.query('SELECT * FROM companies WHERE id = ?', [companyId]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Company not found' });
     }
@@ -74,7 +74,7 @@ exports.uploadLogo = async (req, res) => {
     }
 
     // cek apakah perusahaan ada
-    const [rows] = await db.query('SELECT logo FROM companies WHERE id_companies = ?', [companyId]);
+    const [rows] = await db.query('SELECT logo FROM companies WHERE id = ?', [companyId]);
     if (!rows.length) return res.status(404).json({ success: false, message: 'Company not found' });
 
     // hapus logo lama jika ada
@@ -85,7 +85,7 @@ exports.uploadLogo = async (req, res) => {
     }
 
     // update DB
-    await db.query('UPDATE companies SET logo=? WHERE id_companies=?', [file.filename, companyId]);
+    await db.query('UPDATE companies SET logo=? WHERE id=?', [file.filename, companyId]);
 
     res.json({
       success: true,
@@ -105,19 +105,53 @@ exports.uploadLogo = async (req, res) => {
 exports.createCompany = async (req, res) => {
   const { nama_companies, email_companies, nomor_telepon, website, alamat, logo } = req.body;
 
+  // Validasi field wajib
   if (!nama_companies || !email_companies) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json({
+      success: false,
+      message: 'Nama perusahaan dan email perusahaan wajib diisi',
+      missing: {
+        nama_companies: !nama_companies,
+        email_companies: !email_companies
+      }
+    });
   }
 
   try {
     const [result] = await db.query(
-      'INSERT INTO companies (nama_companies, email_companies, nomor_telepon, website, alamat, logo) VALUES (?, ?, ?, ?, ?, ?)',
+      `INSERT INTO companies 
+        (nama_companies, email_companies, nomor_telepon, website, alamat, logo) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [nama_companies, email_companies, nomor_telepon, website, alamat, logo]
     );
-    res.status(201).json({ id_companies: result.insertId, ...req.body });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Perusahaan berhasil dibuat',
+      data: {
+        id_companies: result.insertId,
+        nama_companies,
+        email_companies,
+        nomor_telepon,
+        website,
+        alamat,
+        logo
+      }
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Database error' });
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message: 'Email perusahaan sudah terdaftar',
+        field: 'email_companies'
+      });
+    }
+
+    console.error('[createCompany] Database Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan pada server'
+    });
   }
 };
 
@@ -132,7 +166,7 @@ exports.updateCompany = async (req, res) => {
 
   try {
     const [result] = await db.query(
-      'UPDATE companies SET nama_companies = ?, email_companies = ?, nomor_telepon = ?, website = ?, alamat = ?, logo = ? WHERE id_companies = ?',
+      'UPDATE companies SET nama_companies = ?, email_companies = ?, nomor_telepon = ?, website = ?, alamat = ?, logo = ? WHERE id = ?',
       [nama_companies, email_companies, nomor_telepon, website, alamat, logo, companyId]
     );
     if (result.affectedRows === 0) {
@@ -149,7 +183,7 @@ exports.updateCompany = async (req, res) => {
 exports.deleteCompany = async (req, res) => {
   const companyId = req.params.id;
   try {
-    const [result] = await db.query('DELETE FROM companies WHERE id_companies = ?', [companyId]);
+    const [result] = await db.query('DELETE FROM companies WHERE id = ?', [companyId]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Company not found' });
     }
