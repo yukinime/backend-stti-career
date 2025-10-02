@@ -7,10 +7,22 @@ const {pool} = require('../config/database');
  */
 const getBookmarks = async (req, res) => {
     try {
-        const userId = req.user.id;
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        // 1) pastikan req.user.id ada & angka
+        if (!req.user || req.user.id === undefined || req.user.id === null) {
+        return res.status(401).json({ success: false, message: 'User tidak terautentikasi' });
+        }
+        const userId = Number(req.user.id);
+        if (!Number.isFinite(userId)) {
+        return res.status(400).json({ success: false, message: 'User ID tidak valid' });
+        }
+
+        // 2) page/limit -> integer valid (fallback aman)
+        const pageRaw = Number.parseInt(req.query.page, 10);
+        const limitRaw = Number.parseInt(req.query.limit, 10);
+        const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 10;
         const offset = (page - 1) * limit;
+        
 
         // Query untuk mendapatkan bookmarks dengan detail job posts
         const [bookmarkedJobs] = await pool.execute(`
@@ -40,7 +52,7 @@ const getBookmarks = async (req, res) => {
         `, [userId, limit, offset]);
 
         // Hitung total pages
-        const totalCount = bookmarkedJobs.length > 0 ? bookmarkedJobs[0].total_count : 0;
+        const totalCount = bookmarkedJobs.length > 0 ? Number(bookmarkedJobs[0].total_count) || 0 : 0;
         const totalPages = Math.ceil(totalCount / limit);
 
         // Format response data
@@ -481,9 +493,11 @@ const searchBookmarks = async (req, res) => {
             limit = 10 
         } = req.query;
 
-        const pageNum = parseInt(page);
-        const limitNum = parseInt(limit);
-        const offset = (pageNum - 1) * limitNum;
+            const pageRaw = Number.parseInt(page, 10);
+            const limitRaw = Number.parseInt(limit, 10);
+            const pageNum = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+            const limitNum = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 10;
+            const offset = (pageNum - 1) * limitNum;
 
         // Build WHERE conditions
         let whereConditions = ['b.user_id = ?'];
