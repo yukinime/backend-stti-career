@@ -3,7 +3,8 @@ const db = require("../config/database");
 // GET all job applicants (with optional filter for HR or Applicant)
 exports.getAllJobApplicants = async (req, res) => {
   try {
-    const { hrId, pelamarId, jobId, status } = req.query;
+    const hrId = req.user.id
+    const { pelamarId, jobId, status } = req.query;
 
     let sql = `
       SELECT 
@@ -21,7 +22,7 @@ exports.getAllJobApplicants = async (req, res) => {
       WHERE 1=1
     `;
 
-    let values = [];
+    let values = [hrId];
 
     if (hrId) {
       sql += " AND j.hr_id = ?";
