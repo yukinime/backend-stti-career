@@ -288,7 +288,7 @@ exports.getJobById = async (req, res) => {
       return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
-    const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ?", [id]);
+    const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ? AND hr_id = ?", [id,req.user.id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
@@ -316,24 +316,55 @@ exports.getJobById = async (req, res) => {
    POST: create job
    ========================= */
 
-// === Auto isi company_id & category_id ===
-async function autoFillCompanyAndCategory(req, payload, db) {
-  // Kalau FE sudah kirim, jangan diganti
-  if (!payload.company_id && req.user?.company_id) {
-    payload.company_id = req.user.company_id;
-  }
+// === AUTO RESOLVER (tambahkan) ===
 
-  if (!payload.category_id && req.body.category_name) {
-    try {
-      const [rows] = await db.query(
-        "SELECT id FROM categories WHERE name = ? LIMIT 1",
-        [req.body.category_name]
+// Ambil company_id:
+// 1) body.company_id
+// 2) req.user.company_id
+// 3) hr_profiles.user_id -> company_id
+// 4) Cocokkan hr_profiles.company_name ke companies.nama_companies -> id_companies
+async function resolveCompanyIdStrict(req, db) {
+  if (req.body.company_id != null) return Number(req.body.company_id);
+  if (req.user?.company_id != null) return Number(req.user.company_id);
+
+  if (req.user?.id != null) {
+    const [hp] = await db.query(
+      "SELECT company_id, company_name FROM hr_profiles WHERE user_id = ? LIMIT 1",
+      [req.user.id]
+    );
+    if (hp.length && hp[0].company_id != null) return Number(hp[0].company_id);
+
+    const name = (hp[0]?.company_name || "").trim();
+    if (name) {
+      const [c] = await db.query(
+        "SELECT id_companies FROM companies WHERE nama_companies = ? LIMIT 1",
+        [name]
       );
-      if (rows.length) payload.category_id = rows[0].id;
-    } catch (e) {
-      console.error("auto category error:", e);
+      if (c.length) return Number(c[0].id_companies);
     }
   }
+
+  return null;
+}
+
+// Ambil category_id dari job_categories by name (atau langsung dari body)
+async function resolveCategoryIdStrict(req, db) {
+  if (req.body.category_id != null) return Number(req.body.category_id);
+
+  const byName =
+    req.body.category_name ||
+    req.body.category ||
+    req.body.categoryTitle ||
+    req.body.category_label;
+
+  if (byName) {
+    const [rows] = await db.query(
+      "SELECT id FROM job_categories WHERE name = ? LIMIT 1",
+      [String(byName).trim()]
+    );
+    if (rows.length) return Number(rows[0].id);
+  }
+  return null;
 }
 
 exports.createJob = async (req, res) => {
@@ -376,8 +407,16 @@ exports.createJob = async (req, res) => {
       });
     }
     payload.hr_id = hrId;
-        // Auto isi company_id & category_id
-    await autoFillCompanyAndCategory(req, payload, db);
+    // === auto set company_id & category_id ===
+    payload.company_id = await resolveCompanyIdStrict(req, db);
+    payload.category_id = await resolveCategoryIdStrict(req, db);
+
+    if (payload.company_id == null) {
+      return res.status(400).json({ success: false, message: "Gagal membuat job: company_id kosong. Hubungkan profil HR ke perusahaan (hr_profiles.company_id atau company_name harus cocok dgn companies.nama_companies)." });
+    }
+    if (payload.category_id == null) {
+      return res.status(400).json({ success: false, message: "Gagal membuat job: category_id kosong. Kirim category_id atau category_name yang ada di job_categories." });
+    }
 
     const [result] = await db.query("INSERT INTO job_posts SET ?", [payload]);
 
@@ -587,7 +626,10 @@ exports.getAllJobs = async (req, res) => {
     `;
     const values = [];
 
-    if (hrId) {
+    if (req.user?.role === 'hr') {
+      sql += " AND jp.hr_id = ?";
+      values.push(req.user.id);
+    } else if (hrId) {
       sql += " AND jp.hr_id = ?";
       values.push(hrId);
     } else {
