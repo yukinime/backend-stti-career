@@ -23,10 +23,10 @@ const getBookmarks = async (req, res) => {
         const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 10;
         const offset = (page - 1) * limit;
         
-
+        console.log('DBG /bookmarks', { userId, page, limit, offset });
         // Query untuk mendapatkan bookmarks dengan detail job posts
                 const sql = `
-              SELECT 
+                   SELECT 
                 b.id as bookmark_id,
                 b.user_id,
                 b.job_id,
@@ -43,13 +43,15 @@ const getBookmarks = async (req, res) => {
                 u.full_name as hr_name,
                 u.company_name,
                 COUNT(*) OVER() as total_count
-              FROM bookmarks b
-              LEFT JOIN job_posts jp ON b.job_id = jp.id
-              LEFT JOIN users u ON jp.hr_id = u.id
-              WHERE b.user_id = ?
-              ORDER BY b.created_at DESC
-              LIMIT ${limit} OFFSET ${offset}
+                FROM bookmarks b
+                LEFT JOIN job_posts jp ON b.job_id = jp.id
+                LEFT JOIN users u ON jp.hr_id = u.id
+                WHERE b.user_id = ?
+                ORDER BY b.created_at DESC
+                LIMIT ${limit} OFFSET ${offset}
             `;
+
+             const [bookmarkedJobs] = await pool.query(sql, [userId]);
 
         // Hitung total pages
         const totalCount = bookmarkedJobs.length > 0 ? Number(bookmarkedJobs[0].total_count) || 0 : 0;
