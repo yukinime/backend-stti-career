@@ -273,42 +273,56 @@ exports.getJobSummary = async (req, res) => {
 };
 
 /* =========================
-   GET: job by ID
+   GET: job by ID (HR only, owner)
    ========================= */
 exports.getJobById = async (req, res) => {
   try {
     const { id } = req.params;
     const { lang: queryLang } = req.query;
 
+    // 🔐 Wajib login: hindari TypeError kalau req.user undefined
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: login sebagai HR untuk melihat job ini",
+      });
+    }
+
     let langInfo;
     try {
       langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res.status(statusCode).json({ success: false, message: validationErr.message });
+      return res
+        .status(statusCode)
+        .json({ success: false, message: validationErr.message });
     }
 
-    const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ? AND hr_id = ?", [id,req.user.id]);
+    // Hanya pemilik (HR pembuat) yang boleh melihat
+    const [rows] = await db.query(
+      "SELECT * FROM job_posts WHERE id = ? AND hr_id = ?",
+      [id, req.user.id]
+    );
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
 
     const jobData = mapDbRowToApi(rows[0]);
 
-    // ---- translations (sekali saja) ----
+    // ---- translations (opsional) ----
     if (!langInfo.isDefault) {
       if (langInfo.lang === "all") {
         jobData.translations = await translationService.getAllCachedTranslations(jobData.id);
       } else {
         const t = await translationService.getJobTranslation(jobData.id, langInfo.lang);
-        if (t) jobData.translations = t;
+        if (t) jobData.translations = t; // sudah berbentuk { "<lang>": {...} }
       }
     }
 
-    res.json({ success: true, data: jobData });
+    return res.json({ success: true, data: jobData });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -337,10 +351,10 @@ async function resolveCompanyIdStrict(req, db) {
     const name = (hp[0]?.company_name || "").trim();
     if (name) {
       const [c] = await db.query(
-        "SELECT id_companies FROM companies WHERE nama_companies = ? LIMIT 1",
+        "SELECT id FROM companies WHERE nama_companies = ? LIMIT 1",
         [name]
       );
-      if (c.length) return Number(c[0].id_companies);
+      if (c.length) return Number(c[0].id);
     }
   }
 
