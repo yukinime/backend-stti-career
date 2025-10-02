@@ -25,8 +25,8 @@ const getBookmarks = async (req, res) => {
         
 
         // Query untuk mendapatkan bookmarks dengan detail job posts
-        const [bookmarkedJobs] = await pool.execute(`
-            SELECT 
+                const sql = `
+              SELECT 
                 b.id as bookmark_id,
                 b.user_id,
                 b.job_id,
@@ -43,13 +43,13 @@ const getBookmarks = async (req, res) => {
                 u.full_name as hr_name,
                 u.company_name,
                 COUNT(*) OVER() as total_count
-            FROM bookmarks b
-            LEFT JOIN job_posts jp ON b.job_id = jp.id
-            LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE b.user_id = ?
-            ORDER BY b.created_at DESC
-            LIMIT ? OFFSET ?
-        `, [userId, limit, offset]);
+              FROM bookmarks b
+              LEFT JOIN job_posts jp ON b.job_id = jp.id
+              LEFT JOIN users u ON jp.hr_id = u.id
+              WHERE b.user_id = ?
+              ORDER BY b.created_at DESC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
 
         // Hitung total pages
         const totalCount = bookmarkedJobs.length > 0 ? Number(bookmarkedJobs[0].total_count) || 0 : 0;
