@@ -6,11 +6,21 @@ exports.getAllJobApplicants = async (req, res) => {
     const { hrId, pelamarId, jobId, status } = req.query;
 
     let sql = `
-      SELECT a.*
+      SELECT 
+        a.id,
+        p.full_name AS nama,
+        a.applied_at AS tanggal,
+        p.cv_file AS cv,
+        j.title AS posisi,
+        a.status,
+        a.cover_letter,
+        a.notes
       FROM applications a
+      JOIN pelamar_profiles p ON a.pelamar_id = p.id
       JOIN job_posts j ON a.job_id = j.id
       WHERE 1=1
     `;
+
     let values = [];
 
     if (hrId) {
@@ -39,7 +49,6 @@ exports.getAllJobApplicants = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
 
 
 // GET job applicant by ID
