@@ -48,7 +48,7 @@ const getBookmarks = async (req, res) => {
                     jp.updated_at AS job_updated_at,
 
                     u.full_name AS hr_name,
-                    COALESCE(c.nama_companies, u.company_name) AS company_name,
+                    c.nama_companies AS company_name,
                     c.logo AS company_logo,
 
                     COUNT(*) OVER() AS total_count
@@ -183,19 +183,19 @@ const addBookmark = async (req, res) => {
 
         // Get the bookmarked job with details
         const [bookmarkedJob] = await pool.execute(`
-            SELECT 
-                b.id as bookmark_id,
-                b.user_id,
-                b.job_id,
-                b.created_at as bookmarked_at,
-                jp.title,
-                jp.salary_range,
-                jp.location,
-                u.company_name
-            FROM bookmarks b
-            LEFT JOIN job_posts jp ON b.job_id = jp.id
-            LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE b.id = ?
+        SELECT 
+            b.id as bookmark_id,
+            b.user_id,
+            b.job_id,
+            b.created_at as bookmarked_at,
+            jp.title,
+            jp.salary_range,
+            jp.location,
+            c.nama_companies AS company_name
+        FROM bookmarks b
+        LEFT JOIN job_posts jp ON b.job_id = jp.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE b.id = ?
         `, [result.insertId]);
 
         res.status(201).json({
@@ -252,18 +252,18 @@ const removeBookmark = async (req, res) => {
         }
 
         // Cek apakah bookmark exists dan milik user
-        const [existing] = await pool.execute(`
-            SELECT 
-                b.id,
-                b.user_id,
-                b.job_id,
-                jp.title,
-                u.company_name
-            FROM bookmarks b
-            LEFT JOIN job_posts jp ON b.job_id = jp.id
-            LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE b.id = ? AND b.user_id = ?
-        `, [id, userId]);
+                const [existing] = await pool.execute(`
+                SELECT 
+                    b.id,
+                    b.user_id,
+                    b.job_id,
+                    jp.title,
+                    c.nama_companies AS company_name
+                FROM bookmarks b
+                LEFT JOIN job_posts jp ON b.job_id = jp.id
+                LEFT JOIN companies c ON jp.company_id = c.id
+                WHERE b.id = ? AND b.user_id = ?
+                `, [id, userId]);
 
         if (existing.length === 0) {
             return res.status(404).json({
@@ -318,14 +318,14 @@ const removeBookmarkByJobId = async (req, res) => {
 
         // Cek apakah bookmark exists
         const [existing] = await pool.execute(`
-            SELECT 
-                b.id as bookmark_id,
-                jp.title,
-                u.company_name
-            FROM bookmarks b
-            LEFT JOIN job_posts jp ON b.job_id = jp.id
-            LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE b.user_id = ? AND b.job_id = ?
+        SELECT 
+            b.id as bookmark_id,
+            jp.title,
+            c.nama_companies AS company_name
+        FROM bookmarks b
+        LEFT JOIN job_posts jp ON b.job_id = jp.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE b.user_id = ? AND b.job_id = ?
         `, [userId, job_id]);
 
         if (existing.length === 0) {
@@ -435,13 +435,15 @@ const getBookmarkStats = async (req, res) => {
         // Get bookmarks by company
         const [companyStats] = await pool.execute(`
             SELECT 
-                u.company_name,
+                c.nama_companies AS company_name,
                 COUNT(*) as count
             FROM bookmarks b
             LEFT JOIN job_posts jp ON b.job_id = jp.id
             LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE b.user_id = ? AND u.company_name IS NOT NULL
-            GROUP BY u.company_name
+LEFT JOIN companies c ON jp.company_id = c.id
+LEFT JOIN companies c ON jp.company_id = c.id
+WHERE b.user_id = ? AND c.nama_companies AS company_name IS NOT NULL
+            GROUP BY c.nama_companies AS company_name,
             ORDER BY count DESC
             LIMIT 10
         `, [userId]);
@@ -527,7 +529,7 @@ const searchBookmarks = async (req, res) => {
         }
 
         if (company) {
-            whereConditions.push('u.company_name LIKE ?');
+            whereConditions.push('c.nama_companies AS company_name, LIKE ?');
             queryParams.push(`%${company}%`);
         }
 
@@ -555,12 +557,14 @@ const searchBookmarks = async (req, res) => {
                 jp.created_at as job_created_at,
                 jp.updated_at as job_updated_at,
                 u.full_name as hr_name,
-                u.company_name,
+                c.nama_companies AS company_name,
                 COUNT(*) OVER() as total_count
             FROM bookmarks b
             LEFT JOIN job_posts jp ON b.job_id = jp.id
             LEFT JOIN users u ON jp.hr_id = u.id
-            WHERE ${whereClause}
+LEFT JOIN companies c ON jp.company_id = c.id
+LEFT JOIN companies c ON jp.company_id = c.id
+WHERE ${whereClause}
             ORDER BY b.created_at DESC
             LIMIT ? OFFSET ?
         `, [...queryParams, limitNum, offset]);

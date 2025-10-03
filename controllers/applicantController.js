@@ -7,6 +7,7 @@ exports.getAllJobApplicants = async (req, res) => {
 
     let sql = `
       SELECT 
+        c.nama_companies AS company_name,
         a.id,
         p.full_name AS nama,
         a.applied_at AS tanggal,
@@ -18,35 +19,20 @@ exports.getAllJobApplicants = async (req, res) => {
       FROM applications a
       JOIN pelamar_profiles p ON a.pelamar_id = p.id
       JOIN job_posts j ON a.job_id = j.id
+      LEFT JOIN companies c ON j.company_id = c.id
       WHERE 1=1
     `;
+    const values = [];
 
-    let values = [];
-
-    if (hrId) {
-      sql += " AND j.hr_id = ?";
-      values.push(hrId);
-    }
-
-    if (pelamarId) {
-      sql += " AND a.pelamar_id = ?";
-      values.push(pelamarId);
-    }
-
-    if (jobId) {
-      sql += " AND a.job_id = ?";
-      values.push(jobId);
-    }
-
-    if (status) {
-      sql += " AND a.status = ?";
-      values.push(status);
-    }
+    if (hrId) { sql += " AND j.hr_id = ?"; values.push(hrId); }
+    if (pelamarId) { sql += " AND a.pelamar_id = ?"; values.push(pelamarId); }
+    if (jobId) { sql += " AND a.job_id = ?"; values.push(jobId); }
+    if (status) { sql += " AND a.status = ?"; values.push(status); }
 
     const [results] = await db.query(sql, values);
-    res.json(results);
+    res.json({ success: true, data: results });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
@@ -67,28 +53,30 @@ exports.getJobApplicantById = async (req, res) => {
 
 // POST new job applicant
 exports.createJobApplicant = async (req, res) => {
-  const { job_id, user_id, cover_letter, resume_file, status, notes } = req.body;
-
-  // Validasi (tetap pakai user_id dari frontend)
-  if (!job_id || !user_id || !resume_file) {
-    return res.status(400).json({ message: "Job ID, User ID, and Resume file are required" });
+  const { job_id, user_id, cover_letter, status, notes } = req.body;
+  if (!job_id || !user_id) {
+    return res.status(400).json({ message: "Job ID dan User ID diperlukan" });
   }
-
   try {
-    const [result] = await db.query("INSERT INTO applications (job_id, pelamar_id, cover_letter, resume_file, status, notes) VALUES (?, ?, ?, ?, ?, ?)", [job_id, user_id, cover_letter, resume_file, status || "pending", notes || ""]);
+    const [result] = await db.query(
+      "INSERT INTO applications (job_id, pelamar_id, cover_letter, status, notes) VALUES (?, ?, ?, ?, ?)",
+      [job_id, user_id, cover_letter || "", status || "pending", notes || ""]
+    );
 
     res.status(201).json({
-      id: result.insertId,
-      job_id,
-      pelamar_id: user_id, // disimpan ke kolom pelamar_id
-      cover_letter,
-      resume_file,
-      status: status || "pending",
-      notes: notes || "",
-      applied_at: new Date().toISOString(),
+      success: true,
+      data: {
+        id: result.insertId,
+        job_id,
+        pelamar_id: user_id,
+        cover_letter: cover_letter || "",
+        status: status || "pending",
+        notes: notes || "",
+        applied_at: new Date().toISOString(),
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 

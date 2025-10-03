@@ -8,10 +8,11 @@ const getJobPosts = async (req, res) => {
         const offset = (page - 1) * limit;
 
         let query = `
-            SELECT jp.*, u.full_name as hr_name, u.company_name,
+            SELECT jp.*, u.full_name AS hr_name, c.nama_companies AS company_name,
                    COUNT(a.id) as total_applications
-            FROM job_posts jp 
-            JOIN users u ON jp.hr_id = u.id 
+            FROM job_posts jp
+            JOIN users u ON jp.hr_id = u.id
+             LEFT JOIN companies c ON jp.company_id = c.id
             LEFT JOIN applications a ON jp.id = a.job_id
             WHERE jp.is_active = true
         `;
@@ -19,7 +20,7 @@ const getJobPosts = async (req, res) => {
 
         // Search by title or company
         if (search) {
-            query += ' AND (jp.title LIKE ? OR u.company_name LIKE ? OR jp.description LIKE ?)';
+            query += ' AND (jp.title LIKE ? OR c.nama_companies LIKE ? OR jp.description LIKE ?)';
             const searchTerm = `%${search}%`;
             params.push(searchTerm, searchTerm, searchTerm);
         }
@@ -36,15 +37,17 @@ const getJobPosts = async (req, res) => {
         const [jobPosts] = await pool.execute(query, params);
 
         // Count total
-        let countQuery = `
-            SELECT COUNT(*) as total FROM job_posts jp 
-            JOIN users u ON jp.hr_id = u.id 
+         let countQuery = `
+            SELECT COUNT(*) as total 
+            FROM job_posts jp
+            JOIN users u ON jp.hr_id = u.id
+            LEFT JOIN companies c ON jp.company_id = c.id
             WHERE jp.is_active = true
-        `;
+            `;
         let countParams = [];
 
         if (search) {
-            countQuery += ' AND (jp.title LIKE ? OR u.company_name LIKE ? OR jp.description LIKE ?)';
+            countQuery += ' AND (jp.title LIKE ? OR c.nama_companies LIKE ? OR jp.description LIKE ?)';
             const searchTerm = `%${search}%`;
             countParams.push(searchTerm, searchTerm, searchTerm);
         }
@@ -86,12 +89,20 @@ const getJobPostById = async (req, res) => {
         const pelamar_id = req.user.id;
 
         const [jobPosts] = await pool.execute(
-            `SELECT jp.*, u.full_name as hr_name, u.company_name, u.company_address,
-                    EXISTS(SELECT 1 FROM applications WHERE job_id = jp.id AND pelamar_id = ?) as has_applied
-             FROM job_posts jp 
-             JOIN users u ON jp.hr_id = u.id 
-             WHERE jp.id = ? AND jp.is_active = true`,
-            [pelamar_id, id]
+        `SELECT 
+            jp.*,
+            u.full_name as hr_name,
+            c.nama_companies AS company_name,
+            hp.company_address,
+            EXISTS(
+                SELECT 1 FROM applications WHERE job_id = jp.id AND pelamar_id = ?
+            ) as has_applied
+        FROM job_posts jp 
+        JOIN users u ON jp.hr_id = u.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        LEFT JOIN hr_profiles hp ON hp.user_id = u.id
+        WHERE jp.id = ? AND jp.is_active = true`,
+        [pelamar_id, id]
         );
 
         if (jobPosts.length === 0) {
@@ -180,12 +191,17 @@ const getMyApplications = async (req, res) => {
         const pelamar_id = req.user.id;
 
         let query = `
-            SELECT a.*, jp.title as job_title, jp.location, jp.salary_range,
-                   u.full_name as hr_name, u.company_name
-            FROM applications a
-            JOIN job_posts jp ON a.job_id = jp.id
-            JOIN users u ON jp.hr_id = u.id
-            WHERE a.pelamar_id = ?
+        SELECT a.*, 
+                jp.title as job_title, 
+                jp.location, 
+                jp.salary_range,
+                u.full_name as hr_name, 
+                c.nama_companies AS company_name
+        FROM applications a
+        JOIN job_posts jp ON a.job_id = jp.id
+        JOIN users u ON jp.hr_id = u.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE a.pelamar_id = ?
         `;
         let params = [pelamar_id];
 
