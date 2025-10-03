@@ -3,6 +3,9 @@ const router = express.Router();
 const applicantController = require('../controllers/applicantController');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
+// 🔹 NEW: pelamar ambil tracking lamarannya sendiri
+router.get('/me', authenticateToken, requireRole('pelamar','user'), applicantController.getMyApplications);
+
 // GET: admin & hr diizinkan
 router.get('/', authenticateToken, requireRole('admin','hr'), applicantController.getAllJobApplicants);
 router.get('/:id', authenticateToken, requireRole('admin','hr'), applicantController.getJobApplicantById);

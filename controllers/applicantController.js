@@ -1,4 +1,55 @@
+// controllers/applicantController.js
 const db = require("../config/database");
+
+// 🔹 NEW: pelamar melihat tracking lamaran miliknya
+exports.getMyApplications = async (req, res) => {
+  try {
+    const userId = req.user.id; // id user dari token
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 10, 50));
+    const offset = (page - 1) * limit;
+
+    const sql = `
+      SELECT 
+        a.id,
+        a.job_id,
+        a.pelamar_id,
+        a.status,
+        a.cover_letter,
+        a.notes,
+        a.applied_at,
+        j.title       AS job_title,
+        j.location,
+        j.salary_range,
+        c.nama_companies AS company_name,
+        p.full_name,
+        p.cv_file
+      FROM applications a
+      JOIN job_posts j       ON a.job_id = j.id
+      LEFT JOIN companies c  ON j.company_id = c.id
+      LEFT JOIN pelamar_profiles p ON p.user_id = a.pelamar_id
+      WHERE a.pelamar_id = ?
+      ORDER BY a.applied_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.query(sql, [userId, limit, offset]);
+
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) AS total FROM applications WHERE pelamar_id = ?`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      page,
+      limit,
+      total: countRows[0]?.total || 0,
+      data: rows
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // GET all job applicants (with optional filter for HR or Applicant)
 exports.getAllJobApplicants = async (req, res) => {
