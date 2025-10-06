@@ -272,6 +272,56 @@ exports.getJobSummary = async (req, res) => {
   }
 };
 
+// =============================
+// GET: Job by ID (Public - Pelamar)
+// =============================
+exports.getJobByIdPublic = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { lang: queryLang } = req.query;
+
+    // Validasi bahasa (optional, bisa dihapus kalau belum butuh)
+    let langInfo;
+    try {
+      langInfo = validateLangParam(queryLang);
+    } catch (validationErr) {
+      const statusCode = validationErr.statusCode || 400;
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
+    }
+
+    // Ambil job yang aktif & sudah diverifikasi
+    const [rows] = await db.query(
+      `SELECT jp.*, COUNT(a.id) AS total_applicants
+       FROM job_posts jp
+       LEFT JOIN applications a ON a.job_id = jp.id
+       WHERE jp.id = ? AND jp.is_active = 1 AND jp.verification_status = 'verified'
+       GROUP BY jp.id`,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    const jobData = mapDbRowToApi(rows[0]);
+
+    // Opsional: ambil translasi jika lang != id
+    if (!langInfo?.isDefault) {
+      try {
+        const t = await translationService.getJobTranslation(jobData.id, langInfo.lang);
+        if (t) jobData.translations = t;
+      } catch (err) {
+        console.error("Translation error (public):", err);
+      }
+    }
+
+    return res.json({ success: true, data: jobData });
+  } catch (err) {
+    console.error("getJobByIdPublic error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 /* =========================
    GET: job by ID (HR only, owner)
    ========================= */
@@ -293,16 +343,11 @@ exports.getJobById = async (req, res) => {
       langInfo = validateLangParam(queryLang);
     } catch (validationErr) {
       const statusCode = validationErr.statusCode || 400;
-      return res
-        .status(statusCode)
-        .json({ success: false, message: validationErr.message });
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
     // Hanya pemilik (HR pembuat) yang boleh melihat
-    const [rows] = await db.query(
-      "SELECT * FROM job_posts WHERE id = ? AND hr_id = ?",
-      [id, req.user.id]
-    );
+    const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ? AND hr_id = ?", [id, req.user.id]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
@@ -342,18 +387,12 @@ async function resolveCompanyIdStrict(req, db) {
   if (req.user?.company_id != null) return Number(req.user.company_id);
 
   if (req.user?.id != null) {
-    const [hp] = await db.query(
-      "SELECT company_id, company_name FROM hr_profiles WHERE user_id = ? LIMIT 1",
-      [req.user.id]
-    );
+    const [hp] = await db.query("SELECT company_id, company_name FROM hr_profiles WHERE user_id = ? LIMIT 1", [req.user.id]);
     if (hp.length && hp[0].company_id != null) return Number(hp[0].company_id);
 
     const name = (hp[0]?.company_name || "").trim();
     if (name) {
-      const [c] = await db.query(
-        "SELECT id FROM companies WHERE nama_companies = ? LIMIT 1",
-        [name]
-      );
+      const [c] = await db.query("SELECT id FROM companies WHERE nama_companies = ? LIMIT 1", [name]);
       if (c.length) return Number(c[0].id);
     }
   }
@@ -365,17 +404,10 @@ async function resolveCompanyIdStrict(req, db) {
 async function resolveCategoryIdStrict(req, db) {
   if (req.body.category_id != null) return Number(req.body.category_id);
 
-  const byName =
-    req.body.category_name ||
-    req.body.category ||
-    req.body.categoryTitle ||
-    req.body.category_label;
+  const byName = req.body.category_name || req.body.category || req.body.categoryTitle || req.body.category_label;
 
   if (byName) {
-    const [rows] = await db.query(
-      "SELECT id FROM job_categories WHERE name = ? LIMIT 1",
-      [String(byName).trim()]
-    );
+    const [rows] = await db.query("SELECT id FROM job_categories WHERE name = ? LIMIT 1", [String(byName).trim()]);
     if (rows.length) return Number(rows[0].id);
   }
   return null;
@@ -640,7 +672,7 @@ exports.getAllJobs = async (req, res) => {
     `;
     const values = [];
 
-    if (req.user?.role === 'hr') {
+    if (req.user?.role === "hr") {
       sql += " AND jp.hr_id = ?";
       values.push(req.user.id);
     } else if (hrId) {
@@ -731,6 +763,7 @@ module.exports = {
   getAllJobs: exports.getAllJobs,
   getJobSummary: exports.getJobSummary,
   getJobById: exports.getJobById,
+  getJobByIdPublic: exports.getJobByIdPublic,
   createJob: exports.createJob,
   updateJob: exports.updateJob,
   deleteJob: exports.deleteJob,
