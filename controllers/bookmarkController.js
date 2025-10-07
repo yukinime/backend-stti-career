@@ -53,7 +53,7 @@ const getBookmarks = async (req, res) => {
                 FROM bookmarks b
                 LEFT JOIN job_posts jp ON b.job_id = jp.id
                 LEFT JOIN users u      ON jp.hr_id = u.id
-                LEFT JOIN companies c ON jp.company_id = c.id_companies 
+                LEFT JOIN companies c ON jp.company_id = c.id
                 WHERE b.user_id = ?
                 ORDER BY b.created_at DESC
                 LIMIT ${limit} OFFSET ${offset}
@@ -185,7 +185,7 @@ const addBookmark = async (req, res) => {
             c.nama_companies AS company_name
         FROM bookmarks b
         LEFT JOIN job_posts jp ON b.job_id = jp.id
-        LEFT JOIN companies c ON jp.company_id = c.id_companies
+        LEFT JOIN companies c ON jp.company_id = c.id
         WHERE b.id = ?
         `,
       [result.insertId]
@@ -254,7 +254,7 @@ const removeBookmark = async (req, res) => {
                     c.nama_companies AS company_name
                 FROM bookmarks b
                 LEFT JOIN job_posts jp ON b.job_id = jp.id
-                LEFT JOIN companies c ON jp.company_id = c.id_companies
+                LEFT JOIN companies c ON jp.company_id = c.id
                 WHERE b.id = ? AND b.user_id = ?
                 `,
       [id, userId]
@@ -316,7 +316,7 @@ const removeBookmarkByJobId = async (req, res) => {
             c.nama_companies AS company_name
         FROM bookmarks b
         LEFT JOIN job_posts jp ON b.job_id = jp.id
-        LEFT JOIN companies c ON jp.company_id = c.id_companies
+        LEFT JOIN companies c ON jp.company_id = c.id
         WHERE b.user_id = ? AND b.job_id = ?
         `,
       [userId, job_id]
@@ -427,7 +427,7 @@ const getBookmarkStats = async (req, res) => {
             FROM bookmarks b
             LEFT JOIN job_posts jp ON b.job_id = jp.id
             LEFT JOIN users u ON jp.hr_id = u.id
-LEFT JOIN companies c ON jp.company_id = c.id_companies
+LEFT JOIN companies c ON jp.company_id = c.id
 WHERE b.user_id = ? AND c.nama_companies IS NOT NULL 
 GROUP BY c.nama_companies  
             ORDER BY count DESC
@@ -549,7 +549,7 @@ const searchBookmarks = async (req, res) => {
             FROM bookmarks b
             LEFT JOIN job_posts jp ON b.job_id = jp.id
             LEFT JOIN users u ON jp.hr_id = u.id
-LEFT JOIN companies c ON jp.company_id = c.id_companies
+LEFT JOIN companies c ON jp.company_id = c.id
 WHERE ${whereClause}
             ORDER BY b.created_at DESC
             LIMIT ? OFFSET ?

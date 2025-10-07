@@ -145,109 +145,113 @@ exports.getAllJobs = async (req, res) => {
   try {
     const { hrId, lang: queryLang } = req.query;
 
-    // --- Validasi bahasa sederhana (id, en, ja) ---
-    const SUPPORTED_LANGS = ["id", "en", "ja"];
-    let lang = "id";
-    if (queryLang) {
-      if (queryLang === "all") {
-        // kalau kamu perlu "all", kamu bisa extend sendiri
-        return res.status(400).json({ success: false, message: "lang=all belum didukung pada endpoint ini" });
-      }
-      if (!SUPPORTED_LANGS.includes(queryLang)) {
-        return res.status(400).json({ success: false, message: `Invalid lang. Supported: ${SUPPORTED_LANGS.join(", ")}` });
-      }
-      lang = queryLang;
+    // validasi param bahasa (tetap sesuai punyamu)
+    let langInfo;
+    try {
+      langInfo = validateLangParam ? validateLangParam(queryLang) : { isDefault: true, lang: "id" };
+    } catch (validationErr) {
+      const statusCode = validationErr.statusCode || 400;
+      return res.status(statusCode).json({ success: false, message: validationErr.message });
     }
 
-    // --- Query dasar ---
-   let sql = `
-  SELECT
-    jp.*,
-    c.nama_companies AS company_name,
-    c.logo AS company_logo,
-    COUNT(a.id) AS total_applicants
-  FROM job_posts jp
-  LEFT JOIN companies c ON jp.company_id = c.id_companies
-  LEFT JOIN applications a ON jp.id = a.job_id
-  WHERE 1=1
-`;
+    // optional pagination
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 10, 50));
+    const offset = (page - 1) * limit;
 
+    // Ambil jobs:
+    // - kalau role HR: semua job miliknya
+    // - kalau `hrId` ada: semua job HR tsb
+    // - selain itu: hanya aktif & verified (list publik)
+    let sql = `
+      SELECT
+        jp.id, jp.hr_id, jp.title, jp.description, jp.requirements,
+        jp.salary_range, jp.location, jp.work_type, jp.work_time,
+        jp.is_active, jp.verification_status, jp.created_at, jp.updated_at,
+        u.full_name        AS hr_name,
+        c.id               AS company_id,
+        c.nama_companies   AS company_name,
+        c.logo             AS company_logo,
+        COUNT(a.id)        AS total_applicants
+      FROM job_posts jp
+      LEFT JOIN users u      ON u.id = jp.hr_id
+      LEFT JOIN companies c  ON jp.company_id = c.id          -- << perbaikan: id (bukan id_companies)
+      LEFT JOIN applications a ON a.job_id = jp.id
+      WHERE 1=1
+    `;
     const values = [];
 
-    if (hrId) {
-      // Dashboard HR -> tampilkan semua job milik HR tsb
-      sql += ` AND jp.hr_id = ?`;
+    if (req.user?.role === 'hr') {
+      sql += ' AND jp.hr_id = ?';
+      values.push(req.user.id);
+    } else if (hrId) {
+      sql += ' AND jp.hr_id = ?';
       values.push(hrId);
     } else {
-      // List umum -> hanya job aktif & sudah diverifikasi
-      sql += ` AND jp.is_active = 1 AND jp.verification_status = 'verified'`;
+      sql += " AND jp.is_active = 1 AND jp.verification_status = 'verified'";
     }
 
-    sql += ` GROUP BY jp.id ORDER BY jp.created_at DESC`;
+    sql += ' GROUP BY jp.id ORDER BY jp.created_at DESC LIMIT ? OFFSET ?';
+    values.push(limit, offset);
 
     const [rows] = await db.query(sql, values);
+    const jobs = (rows || []).map(mapDbRowToApi);
 
-    // --- Mapper + perapihan salary_range ---
-    const formatIdr = (n) => `Rp ${Number(n).toLocaleString("id-ID")}`;
-    const onlyDigits = (v) => typeof v === "string" && /^[0-9]+$/.test(v);
+    // === TRANSLATIONS (tetap seperti punyamu) ===
+    if (!langInfo.isDefault) {
+      if (langInfo.lang === 'all') {
+        await Promise.all(
+          jobs.map(async (job) => {
+            try {
+              const all = await translationService.getAllCachedTranslations(job.id);
+              if (all && Object.keys(all).length) job.translations = all;
+            } catch (e) {
+              console.error('getAllCachedTranslations error:', e);
+            }
+          })
+        );
+      } else {
+        await Promise.all(
+          jobs.map(async (job) => {
+            try {
+              const base = {
+                job_title: job.job_title || "",
+                job_description: job.job_description || "",
+                requirements: job.requirements || "",
+                salary_range: job.salary_range || "",
+                location: job.location || "",
+                work_type: job.work_type || null,
+                work_time: job.work_time || null,
+                verification_status: job.verification_status || null,
+                is_active: job.is_active ?? 0,
+              };
 
-    console.log("DEBUG RAW ROWS:", rows);
-
-    const jobs = rows.map((r) => {
-      const base = mapDbRowToApi(r);
-
-      const hasMin = base.salary_min != null;
-      const hasMax = base.salary_max != null;
-
-      // Fallback hitung dari min/max
-      let computedSalaryRange = null;
-      if (hasMin && hasMax) {
-        computedSalaryRange = `${formatIdr(base.salary_min)} - ${formatIdr(base.salary_max)}`;
-      } else if (hasMin) {
-        computedSalaryRange = `${formatIdr(base.salary_min)}+`;
-      } else if (hasMax) {
-        computedSalaryRange = `≤ ${formatIdr(base.salary_max)}`;
+              let t = await translationService.getJobTranslation(job.id, langInfo.lang);
+              if (!t) {
+                await translationService.refreshJobTranslations(job.id, [langInfo.lang], base);
+                t = await translationService.getJobTranslation(job.id, langInfo.lang);
+              }
+              if (t) job.translations = t;
+            } catch (e) {
+              console.error('job translation fetch error:', e);
+            }
+          })
+        );
       }
-
-      // Perapihan salary_range dari DB
-      let finalSalaryRange = base.salary_range;
-      if (!finalSalaryRange || finalSalaryRange === "null") {
-        finalSalaryRange = computedSalaryRange || null;
-      } else if (onlyDigits(finalSalaryRange)) {
-        finalSalaryRange = formatIdr(finalSalaryRange);
-      }
-
-      return {
-        ...base,
-        salary_range: finalSalaryRange,
-        // Hindari null supaya FE gak ribet
-        job_title: base.job_title || "",
-        job_description: base.job_description || "",
-        requirements: base.requirements || "",
-        location: base.location || "",
-      };
-    });
-
-    // --- Tambahkan terjemahan bila lang != 'id' ---
-    if (lang !== "id" && jobs.length) {
-      await Promise.all(
-        jobs.map(async (job) => {
-          try {
-            const t = await translationService.getJobTranslation(job.id, lang);
-            if (t) job.translations = t; // bentuk: { [lang]: {...} }
-          } catch (e) {
-            console.error("Job translation fetch error:", e);
-          }
-        })
-      );
     }
 
-    res.json({ success: true, data: jobs });
+    return res.json({
+      success: true,
+      page, limit,
+      total: jobs.length, // kalau butuh total akurat, bikin COUNT(*) terpisah
+      data: jobs
+    });
   } catch (err) {
-    console.error("getAllJobs error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error('Database query error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
 
 /* =========================
    GET: ringkasan job
@@ -301,7 +305,7 @@ exports.getJobByIdPublic = async (req, res) => {
     const [rows] = await db.query(
       `SELECT jp.*, c.nama_companies AS company_name,   c.logo AS company_logo, COUNT(a.id) AS total_applicants
        FROM job_posts jp
-       LEFT JOIN companies c ON jp.company_id = c.id_companies
+       LEFT JOIN companies c ON jp.company_id = c.id
        LEFT JOIN applications a ON a.job_id = jp.id
        WHERE jp.id = ? AND jp.is_active = 1 AND jp.verification_status = 'verified'
        GROUP BY jp.id`,
@@ -336,47 +340,56 @@ exports.getJobByIdPublic = async (req, res) => {
    ========================= */
 exports.getJobById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { lang: queryLang } = req.query;
+    const jobId  = Number(req.params.id);
+    const userId = req.user?.id || 0;
+    const role   = req.user?.role || null;
 
-    // 🔐 Wajib login: hindari TypeError kalau req.user undefined
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized: login sebagai HR untuk melihat job ini",
-      });
-    }
-
-    let langInfo;
-    try {
-      langInfo = validateLangParam(queryLang);
-    } catch (validationErr) {
-      const statusCode = validationErr.statusCode || 400;
-      return res.status(statusCode).json({ success: false, message: validationErr.message });
-    }
-
-    // Hanya pemilik (HR pembuat) yang boleh melihat
-    const [rows] = await db.query("SELECT * FROM job_posts WHERE id = ? AND hr_id = ?", [id, req.user.id]);
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Job not found" });
-    }
-
-    const jobData = mapDbRowToApi(rows[0]);
-
-    // ---- translations (opsional) ----
-    if (!langInfo.isDefault) {
-      if (langInfo.lang === "all") {
-        jobData.translations = await translationService.getAllCachedTranslations(jobData.id);
-      } else {
-        const t = await translationService.getJobTranslation(jobData.id, langInfo.lang);
-        if (t) jobData.translations = t; // sudah berbentuk { "<lang>": {...} }
+    // 1) HR owner: tetap seperti semula (lihat job miliknya)
+    if (role === 'hr') {
+      const [ownRows] = await db.query(
+        `SELECT jp.*, c.nama_companies AS company_name, c.logo AS company_logo
+         FROM job_posts jp
+         LEFT JOIN companies c ON jp.company_id = c.id
+         WHERE jp.id = ? AND jp.hr_id = ?`,
+        [jobId, userId]
+      );
+      if (!ownRows.length) {
+        return res.status(404).json({ success: false, message: 'Job not found' });
       }
+      return res.json({ success: true, data: mapDbRowToApi(ownRows[0]) });
     }
 
-    return res.json({ success: true, data: jobData });
+    // 2) Pelamar / non-HR: detail publik + has_applied (tanpa memaksa verified)
+    const [rows] = await db.query(
+      `SELECT 
+         jp.*,
+         u.full_name        AS hr_name,
+         c.nama_companies   AS company_name,
+         c.logo             AS company_logo,
+         EXISTS(
+           SELECT 1
+           FROM applications a
+           JOIN pelamar_profiles p2 ON p2.id = a.pelamar_id
+           WHERE a.job_id = jp.id AND p2.user_id = ?
+         ) AS has_applied
+       FROM job_posts jp
+       LEFT JOIN users u      ON u.id = jp.hr_id
+       LEFT JOIN companies c  ON jp.company_id = c.id
+       WHERE jp.id = ? AND jp.is_active = 1
+       LIMIT 1`,
+      [userId, jobId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const data = mapDbRowToApi(rows[0]);
+    data.has_applied = !!rows[0].has_applied;
+    return res.json({ success: true, data });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    console.error('getJobById error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
