@@ -182,9 +182,9 @@ const applyForJob = async (req, res) => {
       : '';
 
     // final: upload > profil > ""
-    const finalResume    = uploadedResumeUrl    || prof[0].cv_file            || '';
-    const finalCLFile    = uploadedCLUrl        || prof[0].cover_letter_file  || '';
-    const finalPortfolio = uploadedPortfolioUrl || prof[0].portfolio_file     || '';
+    const finalResume    = uploadedResumeUrl    || prof[0].cv_file           || null;
+    const finalCLFile    = uploadedCLUrl        || prof[0].cover_letter_file || null;
+    const finalPortfolio = uploadedPortfolioUrl || prof[0].portfolio_file    || null;
 
     // insert application
     const [ins] = await pool.execute(
@@ -236,9 +236,9 @@ const getMyApplications = async (req, res) => {
     const dataSql = `
       SELECT
         a.id, a.job_id, a.pelamar_id, a.status, a.cover_letter, a.notes, a.applied_at,
-        COALESCE(a.resume_file,        p.cv_file)            AS resume_file,
-        COALESCE(a.cover_letter_file,  p.cover_letter_file)  AS cover_letter_file,
-        COALESCE(a.portfolio_file,     p.portfolio_file)     AS portfolio_file,
+        COALESCE(NULLIF(a.resume_file, ''),       p.cv_file)           AS resume_file,
+        COALESCE(NULLIF(a.cover_letter_file, ''), p.cover_letter_file) AS cover_letter_file,
+        COALESCE(NULLIF(a.portfolio_file, ''),    p.portfolio_file)    AS portfolio_file,
         j.title AS job_title, j.location, j.salary_range,
         c.nama_companies AS company_name
       FROM applications a
