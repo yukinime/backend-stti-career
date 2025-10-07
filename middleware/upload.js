@@ -13,12 +13,10 @@ const storage = multer.diskStorage({
     const field = file.fieldname; // resume_file / cover_letter_file / portfolio_file
     const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
     const rand = Math.floor(Math.random() * 1e9);
-    const ts = Date.now();
-    cb(null, `${field}-${ts}-${rand}${ext}`);
+    cb(null, `${field}-${Date.now()}-${rand}${ext}`);
   }
 });
 
-// Terima PDF/DOC/DOCX (longgar): MIME populer + octet-stream + fallback dari ekstensi
 const okMime = (mt = '') => [
   /^application\/pdf$/,
   /^application\/msword$/,
@@ -42,7 +40,6 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10 MB
 });
 
-// Terima tiga field file opsional
 const applyFilesUpload = upload.fields([
   { name: 'resume_file',       maxCount: 1 },
   { name: 'cover_letter_file', maxCount: 1 },

@@ -130,7 +130,8 @@ const applyForJob = async (req, res) => {
     port:   req.files?.portfolio_file?.[0]?.filename,
   });
   try {
-    const { job_id, cover_letter } = req.body || {};
+    const jobId = Number(req.params.id || req.body.job_id);  // <— kecil tapi penting
+    const coverLetter = req.body?.cover_letter || '';
     const userId = req.user.id;
 
     if (!job_id) {
