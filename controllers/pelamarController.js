@@ -192,31 +192,37 @@ const applyForJob = async (req, res) => {
   }
 };
 
-// Tracking lamaran saya (pelamar) — robust params handling
+// Tracking lamaran saya (pelamar) — fix ER_WRONG_ARGUMENTS
 const getMyApplications = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     // pagination aman (angka)
-    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 10, 50));
+    const pageNum  = parseInt(req.query.page, 10);
+    const limitNum = parseInt(req.query.limit, 10);
+
+    const page  = Number.isInteger(pageNum)  && pageNum  > 0 ? pageNum  : 1;
+    const limit = Number.isInteger(limitNum) && limitNum > 0 ? Math.min(limitNum, 50) : 10;
     const offset = (page - 1) * limit;
 
     // filter status (opsional)
-    const allowedStatus = new Set(['pending', 'accepted', 'rejected']);
-    const status = (req.query.status || '').toLowerCase();
+    const allowedStatus = new Set(["pending", "accepted", "rejected"]);
+    const status = (req.query.status || "").toLowerCase();
     const useStatus = allowedStatus.has(status);
 
-    // rakit WHERE & params sekali
-    const whereParts = ['p.user_id = ?'];
-    const baseParams = [userId];
+    // WHERE & params
+    const whereParts = ["p.user_id = ?"];
+    const params = [userId];
     if (useStatus) {
-      whereParts.push('a.status = ?');
-      baseParams.push(status);
+      whereParts.push("a.status = ?");
+      params.push(status);
     }
-    const whereSql = 'WHERE ' + whereParts.join(' AND ');
+    const whereSql = "WHERE " + whereParts.join(" AND ");
 
-    // query data
+    // ⚠️ Inline LIMIT/OFFSET (angka sudah divalidasi)
     const dataSql = `
       SELECT
         a.id, a.job_id, a.pelamar_id, a.status, a.cover_letter, a.notes, a.applied_at,
@@ -228,19 +234,19 @@ const getMyApplications = async (req, res) => {
       LEFT JOIN companies c   ON c.id = j.company_id
       ${whereSql}
       ORDER BY a.applied_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${limit} OFFSET ${offset}
     `;
-    const dataParams = [...baseParams, limit, offset];
-    const [rows] = await pool.execute(dataSql, dataParams);
 
-    // query count (tanpa limit/offset)
+    const [rows] = await pool.execute(dataSql, params);
+
+    // count (tanpa limit/offset)
     const countSql = `
       SELECT COUNT(*) AS total
       FROM applications a
       JOIN pelamar_profiles p ON p.id = a.pelamar_id
       ${whereSql}
     `;
-    const [cnt] = await pool.execute(countSql, baseParams);
+    const [cnt] = await pool.execute(countSql, params);
     const total = cnt[0]?.total || 0;
 
     return res.json({
@@ -251,8 +257,8 @@ const getMyApplications = async (req, res) => {
       data: rows
     });
   } catch (err) {
-    console.error('getMyApplications error:', err);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error("getMyApplications error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
