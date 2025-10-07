@@ -39,6 +39,14 @@ router.get(
   pelamarController.getMyApplications
 );
 
+// ...setelah route tracking & apply, tambahkan:
+router.delete(
+  '/applications/:id',
+  authenticateToken,
+  requireRole('pelamar','user'),
+  pelamarController.cancelApplication
+);
+
 /**
  * DETAIL (login disarankan untuk flags seperti has_applied)
  */
