@@ -133,87 +133,87 @@ const getJobPostById = async (req, res) => {
 // Apply for a job
 const applyForJob = async (req, res) => {
   try {
-    const { job_id, cover_letter } = req.body || {};
+    const { job_id, cover_letter, resume_file } = req.body || {};
     const userId = req.user.id;
 
     if (!job_id) {
-      return res.status(400).json({ success: false, message: 'job_id wajib diisi' });
+      return res.status(400).json({ success: false, message: "job_id wajib diisi" });
     }
 
-    // pastikan profil pelamar ada
-    const pelamarProfileId = await getPelamarProfileIdByUser(userId);
-    if (!pelamarProfileId) {
+    // 1) Ambil profil pelamar (id + cv_file untuk fallback)
+    const [prof] = await pool.execute(
+      "SELECT id, cv_file FROM pelamar_profiles WHERE user_id = ? LIMIT 1",
+      [userId]
+    );
+    if (!prof.length) {
       return res.status(400).json({
         success: false,
-        message: 'Profil pelamar belum ada. Lengkapi profil pelamar dulu.'
+        message: "Profil pelamar belum ada. Lengkapi profil pelamar dulu."
       });
     }
+    const pelamarProfileId = prof[0].id;
+    const profileCv = prof[0].cv_file || null;
 
-    // job harus aktif
-    const [jobPosts] = await pool.execute(
-      'SELECT id, title, is_active FROM job_posts WHERE id = ?',
+    // 2) Cek job aktif
+    const [jobs] = await pool.execute(
+      "SELECT id, title, is_active FROM job_posts WHERE id = ?",
       [job_id]
     );
-    if (!jobPosts.length) {
-      return res.status(404).json({ success: false, message: 'Lowongan pekerjaan tidak ditemukan' });
+    if (!jobs.length) {
+      return res.status(404).json({ success: false, message: "Lowongan pekerjaan tidak ditemukan" });
     }
-    if (jobPosts[0].is_active === 0) {
-      return res.status(400).json({ success: false, message: 'Job sudah tidak aktif' });
+    if (jobs[0].is_active === 0) {
+      return res.status(400).json({ success: false, message: "Job sudah tidak aktif" });
     }
 
-    // cegah double-apply berdasarkan profil pelamar
+    // 3) Cegah double-apply
     const [dup] = await pool.execute(
-      'SELECT id FROM applications WHERE job_id = ? AND pelamar_id = ? LIMIT 1',
+      "SELECT id FROM applications WHERE job_id = ? AND pelamar_id = ? LIMIT 1",
       [job_id, pelamarProfileId]
     );
     if (dup.length) {
-      return res.status(409).json({ success: false, message: 'Anda sudah melamar untuk posisi ini' });
+      return res.status(409).json({ success: false, message: "Anda sudah melamar untuk posisi ini" });
     }
 
-    // insert (pelamar_id = id profil)
+    // 4) Tentukan resume_file: body > profile cv_file > ""
+    const resumeUrl = resume_file || profileCv || "";
+
+    // 5) Insert lamaran (SIMPAN resume_file)
     const [ins] = await pool.execute(
-      'INSERT INTO applications (job_id, pelamar_id, cover_letter, status, notes) VALUES (?, ?, ?, ?, ?)',
-      [job_id, pelamarProfileId, cover_letter || '', 'pending', '']
+      "INSERT INTO applications (job_id, pelamar_id, cover_letter, resume_file, status, notes) VALUES (?, ?, ?, ?, ?, ?)",
+      [job_id, pelamarProfileId, cover_letter || "", resumeUrl, "pending", ""]
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Lamaran berhasil dikirim',
+      message: "Lamaran berhasil dikirim",
       data: {
         application_id: ins.insertId,
-        job_title: jobPosts[0].title,
-        status: 'pending'
+        job_title: jobs[0].title,
+        status: "pending"
       }
     });
-
   } catch (error) {
-    console.error('Apply for job error:', error);
-    res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+    console.error("Apply for job error:", error);
+    return res.status(500).json({ success: false, message: "Terjadi kesalahan server" });
   }
 };
 
 // Tracking lamaran saya (pelamar) — fix ER_WRONG_ARGUMENTS
 const getMyApplications = async (req, res) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+    const userId = req.user.id;
 
-    // pagination aman (angka)
     const pageNum  = parseInt(req.query.page, 10);
     const limitNum = parseInt(req.query.limit, 10);
-
     const page  = Number.isInteger(pageNum)  && pageNum  > 0 ? pageNum  : 1;
     const limit = Number.isInteger(limitNum) && limitNum > 0 ? Math.min(limitNum, 50) : 10;
     const offset = (page - 1) * limit;
 
-    // filter status (opsional)
     const allowedStatus = new Set(["pending", "accepted", "rejected"]);
     const status = (req.query.status || "").toLowerCase();
     const useStatus = allowedStatus.has(status);
 
-    // WHERE & params
     const whereParts = ["p.user_id = ?"];
     const params = [userId];
     if (useStatus) {
@@ -222,10 +222,11 @@ const getMyApplications = async (req, res) => {
     }
     const whereSql = "WHERE " + whereParts.join(" AND ");
 
-    // ⚠️ Inline LIMIT/OFFSET (angka sudah divalidasi)
+    // >>> resume_file: COALESCE(a.resume_file, p.cv_file) AS resume_file <<<
     const dataSql = `
       SELECT
         a.id, a.job_id, a.pelamar_id, a.status, a.cover_letter, a.notes, a.applied_at,
+        COALESCE(a.resume_file, p.cv_file) AS resume_file,
         j.title AS job_title, j.location, j.salary_range,
         c.nama_companies AS company_name
       FROM applications a
@@ -236,10 +237,8 @@ const getMyApplications = async (req, res) => {
       ORDER BY a.applied_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
-
     const [rows] = await pool.execute(dataSql, params);
 
-    // count (tanpa limit/offset)
     const countSql = `
       SELECT COUNT(*) AS total
       FROM applications a
@@ -247,13 +246,12 @@ const getMyApplications = async (req, res) => {
       ${whereSql}
     `;
     const [cnt] = await pool.execute(countSql, params);
-    const total = cnt[0]?.total || 0;
 
     return res.json({
       success: true,
       page,
       limit,
-      total,
+      total: cnt[0]?.total || 0,
       data: rows
     });
   } catch (err) {
