@@ -5,6 +5,7 @@ const router = express.Router();
 const jobController = require('../controllers/jobController');
 const pelamarController = require('../controllers/pelamarController');
 const { authenticateToken, requireRole, isAdmin } = require('../middleware/auth');
+const { applyFilesUpload } = require('../middleware/upload');
 
 /**
  * PUBLIC
@@ -23,6 +24,7 @@ router.post(
   '/:id/apply',
   authenticateToken,
   requireRole('pelamar', 'user'),
+  applyFilesUpload, // <<----- penting, biar req.files terisi
   (req, res, next) => {
     req.body.job_id = Number(req.params.id);
     return pelamarController.applyForJob(req, res, next);
