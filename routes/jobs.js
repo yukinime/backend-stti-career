@@ -15,21 +15,21 @@ router.get('/public/:id', jobController.getJobByIdPublic);
 
 /**
  * PELAMAR ACTIONS
- * (Letakkan sebelum route param generik agar tidak ketabrak '/:id')
+ * (letakkan sebelum route param generik)
  */
 
-// Apply job (pelamar apply sendiri, job_id diambil dari :id)
+// Apply job: pelamar apply sendiri, job_id diambil dari :id
 router.post(
   '/:id/apply',
   authenticateToken,
-  requireRole('pelamar', 'user'), // jika role kamu hanya 'pelamar', boleh jadi requireRole('pelamar')
+  requireRole('pelamar', 'user'),
   (req, res, next) => {
     req.body.job_id = Number(req.params.id);
     return pelamarController.applyForJob(req, res, next);
   }
 );
 
-// Tracking "lamaran saya" (by user login)
+// Tracking lamaran saya (by user login)
 router.get(
   '/applied/my',
   authenticateToken,
