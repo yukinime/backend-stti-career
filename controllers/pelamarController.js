@@ -123,11 +123,12 @@ const getJobPostById = async (req, res) => {
    APPLY JOB (upload file optional + fallback profil)
    ========================= */
 const applyForJob = async (req, res) => {
-console.log('DEBUG apply files:', Object.keys(req.files || {}), {
-  resume: req.files?.resume_file?.[0]?.filename,
-  cover:  req.files?.cover_letter_file?.[0]?.filename,
-  port:   req.files?.portfolio_file?.[0]?.filename,
-});
+    console.log('[APPLY] user_id:', req.user?.id, 'job:', req.params.id);
+  console.log('[APPLY] files:', Object.keys(req.files || {}), {
+    resume: req.files?.resume_file?.[0]?.filename,
+    cover:  req.files?.cover_letter_file?.[0]?.filename,
+    port:   req.files?.portfolio_file?.[0]?.filename,
+  });
   try {
     const { job_id, cover_letter } = req.body || {};
     const userId = req.user.id;
