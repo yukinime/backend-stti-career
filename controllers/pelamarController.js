@@ -123,82 +123,61 @@ const getJobPostById = async (req, res) => {
    APPLY JOB (upload file optional + fallback profil)
    ========================= */
 const applyForJob = async (req, res) => {
-    console.log('[APPLY] user_id:', req.user?.id, 'job:', req.params.id);
+  // DEBUG: untuk memastikan upload & siapa usernya
+  console.log('[APPLY] user_id:', req.user?.id, 'job:', req.params.id);
   console.log('[APPLY] files:', Object.keys(req.files || {}), {
     resume: req.files?.resume_file?.[0]?.filename,
     cover:  req.files?.cover_letter_file?.[0]?.filename,
     port:   req.files?.portfolio_file?.[0]?.filename,
   });
-  try {
-    const jobId = Number(req.params.id || req.body.job_id);  // <— kecil tapi penting
-    const coverLetter = req.body?.cover_letter || '';
-    const userId = req.user.id;
 
-    if (!job_id) {
-      return res.status(400).json({ success: false, message: 'job_id wajib diisi' });
+  try {
+    // --- ambil identitas yang PASTI ada ---
+    const userId = req.user.id;
+    const jobId = Number(req.params.id || req.body.job_id);   // <— ini pengganti job_id
+    const coverLetter = req.body?.cover_letter || '';
+
+    if (!jobId || Number.isNaN(jobId)) {
+      return res.status(400).json({ success: false, message: 'job_id tidak valid' });
     }
 
-    // profil pelamar (id + default files)
-    const [prof] = await pool.execute(
-      `SELECT id, cv_file, cover_letter_file, portfolio_file
-       FROM pelamar_profiles
-       WHERE user_id = ?
-       LIMIT 1`,
+    // pastikan profil pelamar ada (dipakai buat pelamar_id dan fallback file)
+    const [pRows] = await pool.execute(
+      'SELECT id, cv_file, cover_letter_file, portfolio_file FROM pelamar_profiles WHERE user_id = ? LIMIT 1',
       [userId]
     );
-    if (!prof.length) {
-      return res.status(400).json({ success: false, message: 'Profil pelamar belum ada. Lengkapi profil pelamar dulu.' });
+    if (!pRows.length) {
+      return res.status(400).json({ success: false, message: 'Profil pelamar belum ada' });
     }
-    const pelamarProfileId = prof[0].id;
+    const pelamarId = pRows[0].id;
 
-    // job aktif
-    const [jobs] = await pool.execute(
-      `SELECT id, title, is_active FROM job_posts WHERE id = ?`,
-      [job_id]
-    );
-    if (!jobs.length) {
-      return res.status(404).json({ success: false, message: 'Lowongan pekerjaan tidak ditemukan' });
-    }
-    if (jobs[0].is_active === 0) {
-      return res.status(400).json({ success: false, message: 'Job sudah tidak aktif' });
-    }
-
-    // cegah double apply
+    // tolak double apply
     const [dup] = await pool.execute(
-      `SELECT id FROM applications WHERE job_id = ? AND pelamar_id = ? LIMIT 1`,
-      [job_id, pelamarProfileId]
+      'SELECT id FROM applications WHERE job_id = ? AND pelamar_id = ? LIMIT 1',
+      [jobId, pelamarId]
     );
     if (dup.length) {
-      return res.status(409).json({ success: false, message: 'Anda sudah melamar untuk posisi ini' });
+      return res.status(409).json({ success: false, message: 'Kamu sudah melamar pekerjaan ini' });
     }
 
-    // file upload (opsional)
-    const host  = req.get('host');
-    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    // siapkan URL file dari multer atau fallback profil
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads/files/`;
+    const rFn = req.files?.resume_file?.[0]?.filename;
+    const cFn = req.files?.cover_letter_file?.[0]?.filename;
+    const pFn = req.files?.portfolio_file?.[0]?.filename;
 
-    const uploadedResumeUrl = req.files?.resume_file?.[0]
-      ? `${proto}://${host}/uploads/files/${req.files.resume_file[0].filename}`
-      : '';
+    const finalResume    = rFn ? baseUrl + rFn : (pRows[0].cv_file || null);
+    const finalCLFile    = cFn ? baseUrl + cFn : (pRows[0].cover_letter_file || null);
+    const finalPortfolio = pFn ? baseUrl + pFn : (pRows[0].portfolio_file || null);
 
-    const uploadedCLUrl = req.files?.cover_letter_file?.[0]
-      ? `${proto}://${host}/uploads/files/${req.files.cover_letter_file[0].filename}`
-      : '';
+    console.log('[APPLY URLs]', { finalResume, finalCLFile, finalPortfolio });
 
-    const uploadedPortfolioUrl = req.files?.portfolio_file?.[0]
-      ? `${proto}://${host}/uploads/files/${req.files.portfolio_file[0].filename}`
-      : '';
-
-    // final: upload > profil > ""
-    const finalResume    = uploadedResumeUrl    || prof[0].cv_file           || null;
-    const finalCLFile    = uploadedCLUrl        || prof[0].cover_letter_file || null;
-    const finalPortfolio = uploadedPortfolioUrl || prof[0].portfolio_file    || null;
-
-    // insert application
+    // simpan aplikasi
     const [ins] = await pool.execute(
       `INSERT INTO applications
          (job_id, pelamar_id, cover_letter, resume_file, cover_letter_file, portfolio_file, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [job_id, pelamarProfileId, cover_letter || '', finalResume, finalCLFile, finalPortfolio, 'pending', '']
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', '')`,
+      [jobId, pelamarId, coverLetter, finalResume, finalCLFile, finalPortfolio]
     );
 
     return res.status(201).json({
@@ -206,13 +185,12 @@ const applyForJob = async (req, res) => {
       message: 'Lamaran berhasil dikirim',
       data: {
         application_id: ins.insertId,
-        job_title: jobs[0].title,
         status: 'pending'
       }
     });
-  } catch (error) {
-    console.error('Apply for job error:', error);
-    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+  } catch (err) {
+    console.error('Apply for job error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
