@@ -192,70 +192,67 @@ const applyForJob = async (req, res) => {
   }
 };
 
-// Get my applications
+// Tracking lamaran saya (pelamar) — robust params handling
 const getMyApplications = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
     const userId = req.user.id;
 
-    let query = `
-      SELECT a.*, 
-             jp.title as job_title, 
-             jp.location, 
-             jp.salary_range,
-             u.full_name as hr_name, 
-             c.nama_companies AS company_name
+    // pagination aman (angka)
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 10, 50));
+    const offset = (page - 1) * limit;
+
+    // filter status (opsional)
+    const allowedStatus = new Set(['pending', 'accepted', 'rejected']);
+    const status = (req.query.status || '').toLowerCase();
+    const useStatus = allowedStatus.has(status);
+
+    // rakit WHERE & params sekali
+    const whereParts = ['p.user_id = ?'];
+    const baseParams = [userId];
+    if (useStatus) {
+      whereParts.push('a.status = ?');
+      baseParams.push(status);
+    }
+    const whereSql = 'WHERE ' + whereParts.join(' AND ');
+
+    // query data
+    const dataSql = `
+      SELECT
+        a.id, a.job_id, a.pelamar_id, a.status, a.cover_letter, a.notes, a.applied_at,
+        j.title AS job_title, j.location, j.salary_range,
+        c.nama_companies AS company_name
       FROM applications a
       JOIN pelamar_profiles p ON p.id = a.pelamar_id
-      JOIN job_posts jp        ON a.job_id = jp.id
-      JOIN users u             ON jp.hr_id = u.id
-      LEFT JOIN companies c    ON jp.company_id = c.id
-      WHERE p.user_id = ?
+      JOIN job_posts j        ON j.id = a.job_id
+      LEFT JOIN companies c   ON c.id = j.company_id
+      ${whereSql}
+      ORDER BY a.applied_at DESC
+      LIMIT ? OFFSET ?
     `;
-    const params = [userId];
+    const dataParams = [...baseParams, limit, offset];
+    const [rows] = await pool.execute(dataSql, dataParams);
 
-    if (status && ['pending', 'accepted', 'rejected'].includes(status)) {
-      query += ' AND a.status = ?';
-      params.push(status);
-    }
-
-    query += ' ORDER BY a.applied_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit,10), parseInt(offset,10));
-
-    const [applications] = await pool.execute(query, params);
-
-    let countQuery = `
-      SELECT COUNT(*) as total 
+    // query count (tanpa limit/offset)
+    const countSql = `
+      SELECT COUNT(*) AS total
       FROM applications a
       JOIN pelamar_profiles p ON p.id = a.pelamar_id
-      WHERE p.user_id = ?
+      ${whereSql}
     `;
-    const countParams = [userId];
-    if (status && ['pending', 'accepted', 'rejected'].includes(status)) {
-      countQuery += ' AND a.status = ?';
-      countParams.push(status);
-    }
+    const [cnt] = await pool.execute(countSql, baseParams);
+    const total = cnt[0]?.total || 0;
 
-    const [tot] = await pool.execute(countQuery, countParams);
-    const total = tot[0]?.total || 0;
-
-    res.json({
+    return res.json({
       success: true,
-      data: {
-        applications,
-        pagination: {
-          current_page: parseInt(page,10),
-          total_pages: Math.ceil(total / parseInt(limit,10)),
-          total_items: total,
-          items_per_page: parseInt(limit,10)
-        }
-      }
+      page,
+      limit,
+      total,
+      data: rows
     });
-
-  } catch (error) {
-    console.error('Get my applications error:', error);
-    res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+  } catch (err) {
+    console.error('getMyApplications error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
