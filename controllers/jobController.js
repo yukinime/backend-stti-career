@@ -166,7 +166,7 @@ exports.getAllJobs = async (req, res) => {
     let sql = `
       SELECT
         jp.id, jp.hr_id, jp.title, jp.description, jp.requirements,
-        jp.salary_range, jp.location, jp.work_type, jp.work_time,
+        jp.salary_min, jp.salary_max, jp.salary_range, jp.location, jp.work_type, jp.work_time,
         jp.is_active, jp.verification_status, jp.created_at, jp.updated_at,
         u.full_name        AS hr_name,
         c.id               AS company_id,
