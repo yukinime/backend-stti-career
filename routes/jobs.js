@@ -7,6 +7,14 @@ const pelamarController = require('../controllers/pelamarController');
 const { authenticateToken, requireRole, isAdmin } = require('../middleware/auth');
 const { applyFilesUpload } = require('../middleware/upload');
 
+
+/**
+ * ADMIN ONLY — verify job
+ */
+router.get('/admin', authenticateToken, isAdmin, jobController.getAllJobs); // ✅ untuk dashboard admin
+router.put('/:id/verify', authenticateToken, isAdmin, jobController.verifyJob);
+
+
 /**
  * PUBLIC
  */
@@ -60,9 +68,5 @@ router.post('/', authenticateToken, requireRole('hr'), jobController.createJob);
 router.put('/:id', authenticateToken, requireRole('hr'), jobController.updateJob);
 router.delete('/:id', authenticateToken, requireRole('hr'), jobController.deleteJob);
 
-/**
- * ADMIN ONLY — verify job
- */
-router.put('/:id/verify', authenticateToken, isAdmin, jobController.verifyJob);
 
 module.exports = router;

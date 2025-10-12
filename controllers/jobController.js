@@ -181,15 +181,24 @@ exports.getAllJobs = async (req, res) => {
     `;
     const values = [];
 
+    // --- FILTER BERDASARKAN ROLE DAN QUERY STATUS ---
     if (req.user?.role === 'hr') {
       sql += ' AND jp.hr_id = ?';
       values.push(req.user.id);
+    } else if (req.user?.role === 'admin') {
+      // ✅ Admin bisa filter berdasarkan status di query (?status=pending / verified / rejected)
+      if (req.query.status) {
+        sql += ' AND jp.verification_status = ?';
+        values.push(req.query.status);
+      }
     } else if (hrId) {
       sql += ' AND jp.hr_id = ?';
       values.push(hrId);
     } else {
+      // User publik hanya lihat job aktif & verified
       sql += " AND jp.is_active = 1 AND jp.verification_status = 'verified'";
     }
+
 
     sql += ' GROUP BY jp.id ORDER BY jp.created_at DESC LIMIT ? OFFSET ?';
     values.push(limit, offset);
