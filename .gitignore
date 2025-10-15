@@ -17,3 +17,8 @@ jspm_packages/
 # Dist/build output
 dist/
 build/
+uploads/
+.env
+*.key
+*.pem
+*.p12

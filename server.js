@@ -1,12 +1,19 @@
 // server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');   // <- import sekali
-const fs = require('fs');       // <- import sekali
-const multer = require('multer');
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer'); // hanya untuk deteksi error Multer di error handler
 
 const { testConnection, initializeDatabase } = require('./config/database');
+// >>> Single source of truth (semua path upload ikut ini)
+const {
+  UPLOADS_BASE,
+  IMAGES_DIR,
+  FILES_DIR,
+  COMPANY_LOGOS_DIR
+} = require('./config/paths');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -15,22 +22,23 @@ const bookmarkRoutes = require('./routes/bookmarks');
 const jobRoutes = require('./routes/jobs');
 const applicantRoutes = require('./routes/applicant');
 const companyRoutes = require('./routes/company');
-const adminRoutes = require('./routes/admin'); // aktifkan admin
+const adminRoutes = require('./routes/admin'); // aktifkan jika ada
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const VERSION = process.env.APP_VERSION || '1.0.0';
 
-// Trust proxy (Railway/Reverse proxy)
+// Trust proxy (Cloud/Reverse proxy)
 app.set('trust proxy', 1);
 
 // CORS
 const corsOptions = {
-  origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true, // reflect origin
+  origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : true,
   credentials: true
 };
 app.use(cors(corsOptions));
 
+// Parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -40,16 +48,14 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ✅ Cloud Run: pakai /tmp (writable & ephemeral) < JARANG DIRUBAH 
-const uploadsBase = process.env.UPLOADS_DIR || path.resolve('/tmp/uploads');
-
+// Pastikan folder upload tersedia
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
-ensureDir(uploadsBase);
-ensureDir(path.join(uploadsBase, 'images'));
-ensureDir(path.join(uploadsBase, 'files'));
-ensureDir(path.join(uploadsBase, 'company_logos'));
+ensureDir(UPLOADS_BASE);
+ensureDir(IMAGES_DIR);
+ensureDir(FILES_DIR);
+ensureDir(COMPANY_LOGOS_DIR);
 
 // Serve /uploads dengan CORS & cache panjang
 app.use(
@@ -59,7 +65,7 @@ app.use(
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     next();
   },
-  express.static(uploadsBase, { index: false, dotfiles: 'ignore' })
+  express.static(UPLOADS_BASE, { index: false, dotfiles: 'ignore' })
 );
 
 // Health check
@@ -100,7 +106,7 @@ app.get('/', (_req, res) => {
   });
 });
 
-// Error handler
+// Error handler (global)
 app.use((err, req, res, _next) => {
   console.error('Error details:', {
     message: err.message,
@@ -121,10 +127,10 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: map[err.code] || 'Upload error' });
   }
 
-  if (err.message === 'File type not allowed') {
+  if (err.message === 'File type not allowed' || /Tipe file tidak diizinkan/i.test(err.message)) {
     return res.status(400).json({
       success: false,
-      message: 'Tipe file tidak diizinkan. Hanya diperbolehkan: JPG, PNG, PDF, DOC, DOCX'
+      message: 'Tipe file tidak diizinkan.'
     });
   }
 
@@ -175,7 +181,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start
+// Start server
 const startServer = async () => {
   try {
     console.log('🚀 Starting STTI Career API...');
@@ -195,7 +201,6 @@ const startServer = async () => {
       process.exit(1);
     }
 
-    // Initialize (dev only / or if DB_BOOTSTRAP=1)
     console.log('🔧 Initializing database tables...');
     const dbInitialized = await initializeDatabase();
     if (!dbInitialized) {
@@ -219,6 +224,7 @@ const startServer = async () => {
 📡 Health Check: http://localhost:${PORT}/health
 📁 File Access: http://localhost:${PORT}/uploads/
       `);
+      console.log('📁 Uploads base dir:', UPLOADS_BASE);
     });
 
     // Graceful shutdown
@@ -252,7 +258,6 @@ const startServer = async () => {
     }
     process.exit(1);
   }
-  console.log('📁 Uploads base dir:', uploadsBase);
 };
 
 startServer();

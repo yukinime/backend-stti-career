@@ -2,17 +2,16 @@
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { FILES_DIR } = require('../config/paths');
 
-const uploadsBase = process.env.UPLOADS_DIR || path.resolve('/tmp/uploads');
-const filesDir = path.join(uploadsBase, 'files');
-fs.mkdirSync(filesDir, { recursive: true });
+fs.mkdirSync(FILES_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, filesDir),
+  destination: (req, file, cb) => cb(null, FILES_DIR),
   filename: (req, file, cb) => {
     const field = file.fieldname; // resume_file / cover_letter_file / portfolio_file
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
-    const rand = Math.floor(Math.random() * 1e9);
+    const ext   = path.extname(file.originalname || '').toLowerCase() || '.bin';
+    const rand  = Math.floor(Math.random() * 1e9);
     cb(null, `${field}-${Date.now()}-${rand}${ext}`);
   }
 });

@@ -10,6 +10,8 @@ const {
 } = require('../controllers/adminController');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const Joi = require('joi');
+const db = require('../config/database'); // ✅ tambahkan ini untuk query statistik manual
+
 
 const router = express.Router();
 
@@ -35,7 +37,83 @@ const validateUpdateUserStatus = (req, res, next) => {
     next();
 };
 
+// ============================
+// ✅ Tambahkan route statistik real-time
+// ============================
+// ============================
+// ✅ Real-time Monthly Statistics
+// ============================
+router.get('/statistics', async (req, res) => {
+  try {
+    // Users
+    const [[usersNow]] = await db.query(`
+      SELECT COUNT(*) AS total_now 
+      FROM users 
+      WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+      AND YEAR(created_at) = YEAR(CURRENT_DATE())
+    `);
+    const [[usersPrev]] = await db.query(`
+      SELECT COUNT(*) AS total_prev 
+      FROM users 
+      WHERE MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+      AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+    `);
 
+    // Jobs
+    const [[jobsNow]] = await db.query(`
+      SELECT COUNT(*) AS total_now 
+      FROM job_posts 
+      WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+      AND YEAR(created_at) = YEAR(CURRENT_DATE())
+    `);
+    const [[jobsPrev]] = await db.query(`
+      SELECT COUNT(*) AS total_prev 
+      FROM job_posts 
+      WHERE MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+      AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+    `);
+
+    // Applications
+    const [[appsNow]] = await db.query(`
+      SELECT COUNT(*) AS total_now 
+      FROM applications 
+      WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+      AND YEAR(created_at) = YEAR(CURRENT_DATE())
+    `);
+    const [[appsPrev]] = await db.query(`
+      SELECT COUNT(*) AS total_prev 
+      FROM applications 
+      WHERE MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+      AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+    `);
+
+    // Growth calculation
+    const calcGrowth = (now, prev) => {
+      if (prev === 0 && now > 0) return 100;
+      if (prev === 0 && now === 0) return 0;
+      return Math.round(((now - prev) / prev) * 100);
+    };
+
+    const growth = {
+      users: calcGrowth(usersNow.total_now, usersPrev.total_prev),
+      jobs: calcGrowth(jobsNow.total_now, jobsPrev.total_prev),
+      applications: calcGrowth(appsNow.total_now, appsPrev.total_prev),
+    };
+
+    res.json({
+      success: true,
+      data: {
+        users: usersNow.total_now,
+        jobs: jobsNow.total_now,
+        applications: appsNow.total_now,
+        growth,
+      },
+    });
+  } catch (err) {
+    console.error('Error fetching statistics:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
 
 // Admin routes
 router.get('/dashboard', getDashboardStats);     // Dashboard summary (users, companies, jobs, apps)
